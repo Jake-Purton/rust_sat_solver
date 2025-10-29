@@ -6,13 +6,6 @@ pub struct CNF {
     pub model: Vec<i32>,
 }
 
-#[derive(Debug)]
-pub enum Satisfiability {
-    Sat,
-    Unsat,
-    NotKnown,
-}
-
 impl CNF {
 
     pub fn pure_literal (&mut self) {
