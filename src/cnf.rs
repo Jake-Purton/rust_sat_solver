@@ -1,58 +1,80 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 
 #[derive(Debug, Clone)]
 pub struct CNF {
-    pub clauses: Vec<Vec<i32>>,
+    pub clauses: VecDeque<Vec<i32>>,
     pub model: Vec<i32>,
+
+    // have the decisio  stack and push stuff onto it
+    // when tou want to backtrack return the state that you want go back to / the level you wabt or size
+    // of the stack
+    // pub decision_stack: Vec<(i32, bool)>
+    // boolean true if it was a decision, false if it was implied by something else
 }
 
 impl CNF {
 
-    pub fn pure_literal (&mut self) {
-
-        // set containing all literals
-        let mut set: HashSet<i32> = HashSet::new();
-
-        for clause in &self.clauses {
-            for l in clause {
-                set.insert(*l);
+    pub fn pure_literal(&mut self) {
+        // iterative pure literal elimination
+        loop {
+            let mut all: HashSet<i32> = HashSet::new();
+            for clause in &self.clauses {
+                for &l in clause {
+                    all.insert(l);
+                }
             }
-        }
 
-        let mut one_found = false;
-
-        for i in set.clone() {
-            if !set.contains(&-i) {
-                // would be faster if it was a prepend
-
-                // add that variable as a unit clause
-                self.clauses.push(vec![i]);
-                self.unit_prop();
-                one_found = true
+            let mut pure: HashSet<i32> = HashSet::new();
+            for &l in &all {
+                if !all.contains(&-l) {
+                    // skip if already assigned (avoid duplicates)
+                    if !self.model.contains(&l) && !self.model.contains(&-l) {
+                        pure.insert(l);
+                    }
+                }
             }
-        }
 
-        if !one_found {
-            return;
-        } else {
-            self.pure_literal();
+            if pure.is_empty() {
+                break;
+            }
+
+            // add pure literals to model
+            for &l in &pure {
+                if !self.model.contains(&l) {
+                    self.model.push(l);
+                }
+            }
+
+            // remove clauses satisfied by any pure literal
+            self.clauses
+                .retain(|clause| !clause.iter().any(|lit| pure.contains(lit)));
+
+            // continue loop to find newly exposed pure literals
         }
     }
 
-    pub fn unit_prop (&mut self) {
-
-        let mut unit: Option<i32> = None;
-
-        for clause in &self.clauses {
-            if clause.len() == 1 {
-                unit = Some(clause[0]);
-                self.model.push(clause[0]);
-                break;
+    pub fn unit_prop(&mut self) {
+        loop {
+            // find a unit clause
+            let mut unit_opt: Option<i32> = None;
+            for clause in &self.clauses {
+                if clause.len() == 1 {
+                    unit_opt = Some(clause[0]);
+                    break;
+                }
             }
-        }
 
-        // if you have a unit to propogate
-        if let Some(unit) = unit {
+            let unit = match unit_opt {
+                Some(u) => u,
+                None => break, // no more unit clauses
+            };
+
+            // record assignment if not already present
+            if !self.model.contains(&unit) {
+                self.model.push(unit);
+            }
+
+            // propagate unit: remove clauses satisfied by unit and remove -unit from others
             let mut i = 0;
             let mut changed = false;
             while i < self.clauses.len() {
@@ -60,8 +82,7 @@ impl CNF {
                 if self.clauses[i].contains(&unit) {
                     self.clauses.remove(i);
                     changed = true;
-                    // continue without incrementing i because vector shifted
-                    continue;
+                    continue; // don't increment i, vector shifted
                 }
 
                 // remove occurrences of -unit from the clause
@@ -70,17 +91,42 @@ impl CNF {
                 if self.clauses[i].len() != original_len {
                     changed = true;
                 }
+
+                // if clause became empty, keep it (solve will detect unsat)
                 i += 1;
             }
 
-            if changed {
-                self.unit_prop();
+            // continue loop if any change produced new unit clauses
+            if !changed {
+                // still need to continue because we consumed one unit; check for more
+                continue;
             }
         }
-
     }
 
     pub fn solve (&mut self) -> bool {
+
+        // maybe sort first
+        // this is not yet faster but could be maybe 
+        // self.clauses.make_contiguous().sort_unstable_by_key(|clause| clause.len());
+
+        // this is slower
+        // do tautological reduction first
+        // let mut prune_vec = Vec::new();
+        // for c in 0..self.clauses.len() {
+        //     for i in &self.clauses[c] {
+        //         if self.clauses[c].contains(&-i) {
+
+        //             prune_vec.push(c);                    
+        //             break;
+
+        //         }
+        //     }
+        // }
+
+        // while let Some(a) = prune_vec.pop() {
+        //     self.clauses.remove(a);
+        // }
 
         loop {
             let m = self.model.len();
@@ -109,7 +155,7 @@ impl CNF {
 
             // choose a random literal to make true
             let l = d.clauses[0][0];
-            d.clauses.push(vec![l]);
+            d.clauses.push_front(vec![l]);
 
             // if that is solvable then
             if d.solve() {
@@ -117,7 +163,7 @@ impl CNF {
                 // shoukld probably reset clauses too
                 return true;
             } else {
-                self.clauses.push(vec![-l]);
+                self.clauses.push_front(vec![-l]);
                 return self.solve();
             }
 
