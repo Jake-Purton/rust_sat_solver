@@ -21,7 +21,7 @@ enum Decision {
 
 impl CNF {
 
-    pub fn evaluate_clause(&self, clause: usize) -> Decision {
+    fn evaluate_clause(&self, clause: usize) -> Decision {
         let mut undecided = false;
         for literal in &self.clauses[clause] {
             if self.model.contains(&literal) {
@@ -38,7 +38,7 @@ impl CNF {
         }
     }
 
-    pub fn pure_literal(&mut self) {
+    fn pure_literal(&mut self) {
         let mut polarities: HashMap<i32, i8> = HashMap::new();
 
         for (index, clause) in self.clauses.iter().enumerate() {
@@ -76,7 +76,7 @@ impl CNF {
         }
     }
 
-    pub fn unit_propigate (&mut self) -> bool {
+    fn unit_propigate (&mut self) -> bool {
         loop {
             let mut found_unit = false;
 
