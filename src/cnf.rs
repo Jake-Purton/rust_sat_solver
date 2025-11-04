@@ -1,173 +1,189 @@
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct CNF {
-    pub clauses: VecDeque<Vec<i32>>,
-    pub model: Vec<i32>,
+    pub clauses: Vec<Vec<i32>>,
+    
+    pub model: HashSet<i32>,
 
     // have the decisio  stack and push stuff onto it
     // when tou want to backtrack return the state that you want go back to / the level you wabt or size
     // of the stack
-    // pub decision_stack: Vec<(i32, bool)>
-    // boolean true if it was a decision, false if it was implied by something else
+    pub decision_stack: Vec<(i32, bool)>
+    // boolean flag is the decision flag
+}
+
+enum Decision {
+    True,
+    False,
+    Undecided
 }
 
 impl CNF {
 
-    pub fn pure_literal(&mut self) {
-        // iterative pure literal elimination
-        loop {
-            let mut all: HashSet<i32> = HashSet::new();
-            for clause in &self.clauses {
-                for &l in clause {
-                    all.insert(l);
-                }
+    pub fn evaluate_clause(&self, clause: usize) -> Decision {
+        let mut undecided = false;
+        for literal in &self.clauses[clause] {
+            if self.model.contains(&literal) {
+                return Decision::True;
+            } else if !self.model.contains(&-literal) {
+                undecided = true;
             }
+        }
 
-            let mut pure: HashSet<i32> = HashSet::new();
-            for &l in &all {
-                if !all.contains(&-l) {
-                    // skip if already assigned (avoid duplicates)
-                    if !self.model.contains(&l) && !self.model.contains(&-l) {
-                        pure.insert(l);
-                    }
-                }
-            }
-
-            if pure.is_empty() {
-                break;
-            }
-
-            // add pure literals to model
-            for &l in &pure {
-                if !self.model.contains(&l) {
-                    self.model.push(l);
-                }
-            }
-
-            // remove clauses satisfied by any pure literal
-            self.clauses
-                .retain(|clause| !clause.iter().any(|lit| pure.contains(lit)));
-
-            // continue loop to find newly exposed pure literals
+        if undecided {
+            return Decision::Undecided;
+        } else {
+            return Decision::False
         }
     }
 
-    pub fn unit_prop(&mut self) {
-        loop {
-            // find a unit clause
-            let mut unit_opt: Option<i32> = None;
-            for clause in &self.clauses {
-                if clause.len() == 1 {
-                    unit_opt = Some(clause[0]);
-                    break;
-                }
-            }
+    pub fn pure_literal(&mut self) {
+        let mut polarities: HashMap<i32, i8> = HashMap::new();
 
-            let unit = match unit_opt {
-                Some(u) => u,
-                None => break, // no more unit clauses
-            };
-
-            // record assignment if not already present
-            if !self.model.contains(&unit) {
-                self.model.push(unit);
-            }
-
-            // propagate unit: remove clauses satisfied by unit and remove -unit from others
-            let mut i = 0;
-            let mut changed = false;
-            while i < self.clauses.len() {
-                // if clause is satisfied by the unit, remove whole clause
-                if self.clauses[i].contains(&unit) {
-                    self.clauses.remove(i);
-                    changed = true;
-                    continue; // don't increment i, vector shifted
-                }
-
-                // remove occurrences of -unit from the clause
-                let original_len = self.clauses[i].len();
-                self.clauses[i].retain(|&lit| lit != -unit);
-                if self.clauses[i].len() != original_len {
-                    changed = true;
-                }
-
-                // if clause became empty, keep it (solve will detect unsat)
-                i += 1;
-            }
-
-            // continue loop if any change produced new unit clauses
-            if !changed {
-                // still need to continue because we consumed one unit; check for more
+        for (index, clause) in self.clauses.iter().enumerate() {
+            if matches!(self.evaluate_clause(index), Decision::True) {
                 continue;
             }
+
+            for &lit in clause {
+                let var = lit.abs();
+                // Skip assigned literals
+                if self.model.contains(&lit) || self.model.contains(&-lit) {
+                    continue;
+                }
+
+                let entry = polarities.entry(var).or_insert(0);
+                if lit > 0 {
+                    *entry |= 1; // bit 0 = positive
+                } else {
+                    *entry |= 2; // bit 1 = negative
+                }
+            }
         }
+
+        // Find pure literals (only one polarity)
+        for (&var, &mask) in polarities.iter() {
+            if mask == 1 {
+                // Pure positive
+                self.model.insert(var);
+                self.decision_stack.push((var, false)); // implied
+            } else if mask == 2 {
+                // Pure negative
+                self.model.insert(-var);
+                self.decision_stack.push((-var, false));
+            }
+        }
+    }
+
+    pub fn unit_propigate (&mut self) -> bool {
+        loop {
+            let mut found_unit = false;
+
+            for (index, clause) in self.clauses.iter().enumerate() {
+
+                // skip satisfied clauses
+                if matches!(self.evaluate_clause(index), Decision::True) {
+                    continue;
+                }
+
+                match self.evaluate_clause(index) {
+                    Decision::True => continue,
+                    Decision::False => return false,
+                    Decision::Undecided => (),
+                }
+
+                // get all of the unassigned literals
+                let unassigned: Vec<i32> = clause
+                    .iter()
+                    .filter(|lit| !self.model.contains(*lit) && !self.model.contains(&-**lit))
+                    .cloned()
+                    .collect();
+
+                if unassigned.len() == 1 {
+                    let lit = unassigned[0];
+                    self.model.insert(lit);
+                    self.decision_stack.push((lit, false)); // false = implied, not a decision
+                    found_unit = true;
+                    break; // restart scanning after each propagation
+                }
+            }
+
+            if !found_unit {
+                break; // nothing more to propagate
+            }
+        }
+
+        true
+    }
+
+    // backtrack to before the last decision
+    pub fn backtrack (&mut self) {
+
+        while let Some(a) = self.decision_stack.pop() {
+            
+            self.model.remove(&a.0);
+
+            if a.1 {
+                return;
+            }
+
+        }
+
+    }
+
+    pub fn choose_unassigned_literal (&self) -> i32 {
+        for i in &self.clauses {
+            for l in i {
+                if !self.model.contains(&l) {
+                    return *l; 
+                }
+            }
+        }
+
+        return 0;
     }
 
     pub fn solve (&mut self) -> bool {
+        self.pure_literal();
 
-        // maybe sort first
-        // this is not yet faster but could be maybe 
-        // self.clauses.make_contiguous().sort_unstable_by_key(|clause| clause.len());
-
-        // this is slower
-        // do tautological reduction first
-        // let mut prune_vec = Vec::new();
-        // for c in 0..self.clauses.len() {
-        //     for i in &self.clauses[c] {
-        //         if self.clauses[c].contains(&-i) {
-
-        //             prune_vec.push(c);                    
-        //             break;
-
-        //         }
-        //     }
-        // }
-
-        // while let Some(a) = prune_vec.pop() {
-        //     self.clauses.remove(a);
-        // }
-
-        loop {
-            let m = self.model.len();
-            
-            self.unit_prop();
-            self.pure_literal();
-            if m == self.model.len() {
-                break;
-            }
+        if !self.unit_propigate() {
+            // Conflict — backtrack
+            // self.backtrack();
+            return false;
         }
 
-        if self.clauses.len() == 0 {
-            // sat
-            return true;
-        } else {
-
-            for clause in &self.clauses {
-                if clause.len() == 0 {
-                    // unsat
-                    return false
-                }
-            }
-
-            // clone it
-            let mut d = self.clone();
-
-            // choose a random literal to make true
-            let l = d.clauses[0][0];
-            d.clauses.push_front(vec![l]);
-
-            // if that is solvable then
-            if d.solve() {
-                self.model = d.model;
-                // shoukld probably reset clauses too
+        // check if it's solved
+        for i in 0..self.clauses.len() {
+            if matches!(self.evaluate_clause(i), Decision::True) {
                 return true;
-            } else {
-                self.clauses.push_front(vec![-l]);
-                return self.solve();
             }
-
         }
 
+        let lit = self.choose_unassigned_literal();
+        if lit == 0 {
+            return true;
+        }
+
+        // do decision
+        self.model.insert(lit);
+        self.decision_stack.push((lit, true));
+
+        if self.solve() {
+            return true;
+        }
+
+        // try the other one
+        self.backtrack();
+        self.model.insert(-lit);
+        self.decision_stack.push((-lit, true));
+
+        if self.solve() {
+            return true;
+        }
+
+        // failed
+        self.backtrack();
+        false
     }
 }
