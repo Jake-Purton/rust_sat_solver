@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Cdcl {
@@ -116,43 +116,6 @@ impl Cdcl {
         }
     }
 
-    #[allow(dead_code)]
-    fn pure_literal(&mut self) {
-        let mut polarities: HashMap<i32, i8> = HashMap::new();
-
-        for (index, clause) in self.clauses.iter().enumerate() {
-            if matches!(self.evaluate_clause(index), Decision::True) {
-                continue;
-            }
-
-            for lit in clause {
-                let var = lit.abs();
-                // Skip assigned literals
-                if self.contains(*lit) {
-                    continue;
-                }
-
-                let entry = polarities.entry(var).or_insert(0);
-                if *lit > 0 {
-                    *entry |= 1; // bit 0 = positive
-                } else {
-                    *entry |= 2; // bit 1 = negative
-                }
-            }
-        }
-
-        // Find pure literals (only one polarity)
-        for (&var, &mask) in polarities.iter() {
-            if mask == 1 {
-                // Pure positive
-                self.insert(var, self.current_level, None);
-            } else if mask == 2 {
-                // Pure negative
-                self.insert(-var, self.current_level, None);
-            }
-        }
-    }
-
     // Returns None if no conflict, Some(clause_index) if conflict
     fn unit_propigate(&mut self) -> Option<usize> {
         loop {
@@ -196,24 +159,28 @@ impl Cdcl {
         None // no conflict
     }
 
-    // Analyze conflict and return (learned_clause, backjump_level)
-    fn analyze_conflict(&self, conflict_clause: usize) -> (Vec<i32>, u32) {
-        use std::collections::HashSet;
+    // (learned clause, backjump level)
+    fn analyse_conflict(&self, conflict_clause: usize) -> (Vec<i32>, u32) {
         
-        let mut learned = self.clauses[conflict_clause].clone();
+        // get the conflicting clause
+        let mut learned: Vec<i32> = self.clauses[conflict_clause].clone();
         let mut seen: HashSet<i32> = HashSet::new();
         
-        // Count literals at current level
-        let mut current_level_count = 0;
+        // get all of the variables into a set
         for &lit in &learned {
-            if self.get_level(lit) == Some(self.current_level) {
-                current_level_count += 1;
-            }
+            seen.insert(lit.abs());
         }
+
+        // figure out how many variables conflicting are from the current decision level
+        let count_current_level = |clause: &Vec<i32>| -> usize {
+            clause.iter()
+                .filter(|&&lit| self.get_level(lit) == Some(self.current_level))
+                .count()
+        };
         
-        // Resolve until we have exactly one literal at current level (1st-UIP)
+        // find the first UIP 
         let mut trail_idx = self.decision_stack.len();
-        while current_level_count > 1 && trail_idx > 0 {
+        while count_current_level(&learned) > 1 && trail_idx > 0 {
             trail_idx -= 1;
             let (lit, level, _) = self.decision_stack[trail_idx];
             
@@ -221,44 +188,47 @@ impl Cdcl {
                 continue;
             }
             
-            if !learned.contains(&lit) {
+            // if its not in the clause
+            let var = lit.abs();
+            if !seen.contains(&var) {
                 continue;
             }
             
-            // Get reason clause for this literal
-            let var = lit.abs() as usize;
-            if let Some(reason_idx) = self.reason[var - 1] {
-                // Resolve: remove lit and add literals from reason
-                learned.retain(|&l| l != lit);
-                
-                for &reason_lit in &self.clauses[reason_idx] {
-                    if reason_lit != lit && !seen.contains(&reason_lit.abs()) {
-                        learned.push(reason_lit);
-                        seen.insert(reason_lit.abs());
-                    }
-                }
-                
-                // Recount current level literals
-                current_level_count = 0;
-                for &l in &learned {
-                    if self.get_level(l) == Some(self.current_level) {
-                        current_level_count += 1;
-                    }
+            // find the clause (reason) that caused this variable assignment
+            // if it was a decision skip it
+            let reason_idx = match self.reason[(var - 1) as usize] {
+                Some(idx) => idx,
+                None => continue,
+            };
+            
+            // remove the literal
+            learned.retain(|&l| l.abs() != var);
+            seen.remove(&var);
+            
+            // add the negation conflicting variables except for the resolved one
+            // if our thing forces 7 to be false then the negation of the rest of the variables in that clause
+            // allow 7 to be true for example
+            // this is probably the msot confusing part
+            for &reason_lit in &self.clauses[reason_idx] {
+                let reason_var = reason_lit.abs();
+                if reason_var != var && !seen.contains(&reason_var) {
+                    learned.push(reason_lit);
+                    seen.insert(reason_var);
                 }
             }
         }
         
-        // Calculate backjump level: second highest decision level in learned clause
-        let mut max_level = 0;
+        // backjump to the second highest decision level
+        let mut backjump_level = 0;
         for &lit in &learned {
             if let Some(lvl) = self.get_level(lit) {
-                if lvl < self.current_level && lvl > max_level {
-                    max_level = lvl;
+                if lvl < self.current_level && lvl > backjump_level {
+                    backjump_level = lvl;
                 }
             }
         }
         
-        (learned, max_level)
+        (learned, backjump_level)
     }
 
     // backtrack to a specific level
@@ -287,48 +257,38 @@ impl Cdcl {
         None
     }
 
-    pub fn solve_not_recursive(&mut self) -> bool {
-        // Skip pure literal - usually not worth the overhead
-        // self.pure_literal();
+    
 
-        // Initial unit propagation at level 0
-        if let Some(_conflict) = self.unit_propigate() {
-            return false; // UNSAT at level 0
+    pub fn solve_not_recursive(&mut self) -> bool {
+        if let Some(_) = self.unit_propigate() {
+            return false; // already unsat
         }
 
         loop {
-            // Choose next literal to assign
+            // Check if all variables assigned
             let Some(lit) = self.choose_unassigned_literal() else {
-                return true; // All variables assigned, SAT
+                return true; // satisfiable
             };
 
-            // Make decision
+            // decide
             self.current_level += 1;
             self.insert(lit, self.current_level, None);
 
-            // Unit propagation
-            loop {
-                match self.unit_propigate() {
-                    None => break, // No conflict, continue with next decision
-                    Some(conflict_clause) => {
-                        // Conflict found
-                        if self.current_level == 0 {
-                            return false; // UNSAT
-                        }
-
-                        // Analyze conflict and learn clause
-                        let (learned_clause, backjump_level) = self.analyze_conflict(conflict_clause);
-                        
-                        // Add learned clause
-                        self.clauses.push(learned_clause.clone());
-                        
-                        // Backjump
-                        self.backtrack_to_level(backjump_level);
-                        
-                        // The learned clause should be unit under backjump level
-                        // Continue propagating
-                    }
+            // keep propogatinf until no more conflicts or unsat
+            while let Some(conflict_clause) = self.unit_propigate() {
+                if self.current_level == 0 {
+                    return false; // UNSAT
                 }
+
+                // analyse the conflicts to get the learned clauses
+                let (learned_clause, backjump_level) = self.analyse_conflict(conflict_clause);
+                
+                // append the learned clause to be propogated
+                self.clauses.push(learned_clause);
+                
+                // backjump
+                self.backtrack_to_level(backjump_level);
+                
             }
         }
     }
