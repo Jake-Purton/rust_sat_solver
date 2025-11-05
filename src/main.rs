@@ -1,6 +1,8 @@
-mod cnf;
+// mod cnf;
+mod cdclcnf;
 
-use cnf::Cnf;
+use cdclcnf::Cdcl;
+// use cnf::Cnf;
 use std::io::Read;
 use std::time::Instant;
 
@@ -43,7 +45,7 @@ fn main() {
         clauses.push(current_clause);
     }
 
-    let mut cnf = Cnf::new(clauses);
+    let mut cnf = Cdcl::new(clauses);
 
     // println!("{:?}", cnf);
     // To solve after loading:

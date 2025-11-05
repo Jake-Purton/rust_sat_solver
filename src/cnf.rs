@@ -209,24 +209,25 @@ impl Cnf {
     pub fn solve_not_recursive(&mut self) -> bool {
         self.pure_literal();
 
-        // stack of (decision literal, tried_negative)
+        // the decision and a boolean to store if we have tried that decisions negation
         let mut decisions: Vec<(i32, bool)> = Vec::new();
 
         loop {
-            // Propagate
+            // if there is a conflict 
             if !self.unit_propigate() {
-                // Conflict — backtrack
+
+
                 if let Some((last_decision, tried_neg)) = decisions.pop() {
-                    self.backtrack(); // undo up to last decision
+                    self.backtrack();
 
                     if !tried_neg {
-                        // Try the opposite branch
+                        // try the opposite branch
                         self.insert(-last_decision);
                         self.decision_stack.push((-last_decision, true));
                         decisions.push((-last_decision, true));
                         continue;
                     } else {
-                        // Already tried both, continue backtracking
+                        // keep going back
                         continue;
                     }
                 } else {
@@ -245,15 +246,15 @@ impl Cnf {
                 return true;
             }
 
-            // Pick next literal
+            // choose
             let Some(lit) = self.choose_unassigned_literal() else {
                 return true; // All assigned
             };
 
-            // Make a decision
+            // assign
             self.insert(lit);
             self.decision_stack.push((lit, true));
-            decisions.push((lit, false)); // haven't tried neg yet
+            decisions.push((lit, false));
         }
     }
 
