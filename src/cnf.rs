@@ -39,6 +39,7 @@ impl Cnf {
 
     }
 
+    #[inline]
     fn insert(&mut self, lit: i32) {
         let var = lit.abs() as usize;
         
@@ -49,12 +50,14 @@ impl Cnf {
         }
     }
 
+    #[inline]
     fn remove(&mut self, lit: i32) {
         let var = lit.abs() as usize;
 
         self.model[var-1] = None;
     }
 
+    #[inline]
     fn is_true(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         match self.model[var - 1] {
@@ -63,6 +66,7 @@ impl Cnf {
         }
     }
 
+    #[inline]
     fn is_false(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         match self.model[var - 1] {
@@ -71,6 +75,7 @@ impl Cnf {
         }
     }
 
+    #[inline]
     fn contains(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         return !self.model[var-1].is_none();
@@ -201,7 +206,59 @@ impl Cnf {
         None
     }
 
-    pub fn solve (&mut self) -> bool {
+    pub fn solve_not_recursive(&mut self) -> bool {
+        self.pure_literal();
+
+        // stack of (decision literal, tried_negative)
+        let mut decisions: Vec<(i32, bool)> = Vec::new();
+
+        loop {
+            // Propagate
+            if !self.unit_propigate() {
+                // Conflict — backtrack
+                if let Some((last_decision, tried_neg)) = decisions.pop() {
+                    self.backtrack(); // undo up to last decision
+
+                    if !tried_neg {
+                        // Try the opposite branch
+                        self.insert(-last_decision);
+                        self.decision_stack.push((-last_decision, true));
+                        decisions.push((-last_decision, true));
+                        continue;
+                    } else {
+                        // Already tried both, continue backtracking
+                        continue;
+                    }
+                } else {
+                    // Nothing left to backtrack — unsat
+                    return false;
+                }
+            }
+
+            // Check if solved
+            if self
+                .clauses
+                .iter()
+                .enumerate()
+                .all(|(i, _)| matches!(self.evaluate_clause(i), Decision::True))
+            {
+                return true;
+            }
+
+            // Pick next literal
+            let Some(lit) = self.choose_unassigned_literal() else {
+                return true; // All assigned
+            };
+
+            // Make a decision
+            self.insert(lit);
+            self.decision_stack.push((lit, true));
+            decisions.push((lit, false)); // haven't tried neg yet
+        }
+    }
+
+
+    pub fn _solve (&mut self) -> bool {
         self.pure_literal();
 
         if !self.unit_propigate() {
@@ -224,7 +281,7 @@ impl Cnf {
         self.insert(lit);
         self.decision_stack.push((lit, true));
 
-        if self.solve() {
+        if self._solve() {
             return true;
         }
 
@@ -233,7 +290,7 @@ impl Cnf {
         self.insert(-lit);
         self.decision_stack.push((-lit, true));
 
-        if self.solve() {
+        if self._solve() {
             return true;
         }
 
@@ -252,7 +309,7 @@ mod tests {
         // (x1 or x2) and (not x1 or x2) and (not x2 or x3)
         let clauses = vec![vec![1, 2], vec![-1, 2], vec![-2, 3]];
         let mut cnf = Cnf::new(clauses);
-        assert!(cnf.solve());
+        assert!(cnf._solve());
     }
 
     #[test]
@@ -260,6 +317,6 @@ mod tests {
         // (x1) and (not x1)
         let clauses = vec![vec![1], vec![-1]];
         let mut cnf = Cnf::new(clauses);
-        assert!(!cnf.solve());
+        assert!(!cnf._solve());
     }
 }

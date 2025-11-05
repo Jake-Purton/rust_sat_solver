@@ -48,7 +48,7 @@ fn main() {
     // println!("{:?}", cnf);
     // To solve after loading:
 
-    if cnf.solve() {
+    if cnf.solve_not_recursive() {
         println!("SATISFIABLE");
     } else {
         println!("UNSATISFIABLE");
