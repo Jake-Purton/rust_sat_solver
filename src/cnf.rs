@@ -1,10 +1,10 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 
 #[derive(Debug, Clone)]
 pub struct Cnf {
     pub clauses: Vec<Vec<i32>>,
     
-    pub model: HashSet<i32>,
+    pub model: Vec<Option<bool>>,
 
     // have the decisio  stack and push stuff onto it
     // when tou want to backtrack return the state that you want go back to / the level you wabt or size
@@ -12,6 +12,8 @@ pub struct Cnf {
     pub decision_stack: Vec<(i32, bool)>
     // boolean flag is the decision flag
 }
+
+
 
 enum Decision {
     True,
@@ -21,12 +23,67 @@ enum Decision {
 
 impl Cnf {
 
+    pub fn new(clauses: Vec<Vec<i32>>) -> Self {
+
+        let mut largest = 0;
+
+        for i in &clauses {
+            for l in i {
+                if largest < *l {
+                    largest = *l;
+                }
+            }
+        }
+
+        Self { clauses, model: vec![None; largest as usize], decision_stack: Vec::new() }
+
+    }
+
+    fn insert(&mut self, lit: i32) {
+        let var = lit.abs() as usize;
+        
+        if lit > 0 {
+            self.model[var - 1] = Some(true);
+        } else {
+            self.model[var - 1] = Some(false)
+        }
+    }
+
+    fn remove(&mut self, lit: i32) {
+        let var = lit.abs() as usize;
+
+        self.model[var-1] = None;
+    }
+
+    fn is_true(&self, lit: i32) -> bool {
+        let var = lit.abs() as usize;
+        match self.model[var - 1] {
+            Some(val) => (lit > 0 && val) || (lit < 0 && !val),
+            None => false,
+        }
+    }
+
+    fn is_false(&self, lit: i32) -> bool {
+        let var = lit.abs() as usize;
+        match self.model[var - 1] {
+            Some(val) => (lit > 0 && !val) || (lit < 0 && val),
+            None => false,
+        }
+    }
+
+    fn contains(&self, lit: i32) -> bool {
+        let var = lit.abs() as usize;
+        return !self.model[var-1].is_none();
+    }
+
     fn evaluate_clause(&self, clause: usize) -> Decision {
         let mut undecided = false;
         for literal in &self.clauses[clause] {
-            if self.model.contains(literal) {
+
+
+            if self.is_true(*literal) {
                 return Decision::True;
-            } else if !self.model.contains(&-literal) {
+            } else if !self.is_false(*literal) {
                 undecided = true;
             }
         }
@@ -49,7 +106,7 @@ impl Cnf {
             for lit in clause {
                 let var = lit.abs();
                 // Skip assigned literals
-                if self.model.contains(lit) || self.model.contains(&-lit) {
+                if self.contains(*lit) {
                     continue;
                 }
 
@@ -66,11 +123,11 @@ impl Cnf {
         for (&var, &mask) in polarities.iter() {
             if mask == 1 {
                 // Pure positive
-                self.model.insert(var);
+                self.insert(var);
                 self.decision_stack.push((var, false)); // implied
             } else if mask == 2 {
                 // Pure negative
-                self.model.insert(-var);
+                self.insert(-var);
                 self.decision_stack.push((-var, false));
             }
         }
@@ -82,11 +139,6 @@ impl Cnf {
 
             for (index, clause) in self.clauses.iter().enumerate() {
 
-                // skip satisfied clauses
-                if matches!(self.evaluate_clause(index), Decision::True) {
-                    continue;
-                }
-
                 match self.evaluate_clause(index) {
                     Decision::True => continue,
                     Decision::False => return false,
@@ -96,13 +148,13 @@ impl Cnf {
                 // get all of the unassigned literals
                 let unassigned: Vec<i32> = clause
                     .iter()
-                    .filter(|lit| !self.model.contains(*lit) && !self.model.contains(&-**lit))
+                    .filter(|lit| !self.contains(**lit))
                     .cloned()
                     .collect();
 
                 if unassigned.len() == 1 {
                     let lit = unassigned[0];
-                    self.model.insert(lit);
+                    self.insert(lit);
                     self.decision_stack.push((lit, false)); // false = implied, not a decision
                     found_unit = true;
                     break; // restart scanning after each propagation
@@ -122,7 +174,7 @@ impl Cnf {
 
         while let Some(a) = self.decision_stack.pop() {
             
-            self.model.remove(&a.0);
+            self.remove(a.0);
 
             if a.1 {
                 return;
@@ -135,7 +187,7 @@ impl Cnf {
     pub fn choose_unassigned_literal (&self) -> i32 {
         for i in &self.clauses {
             for l in i {
-                if !self.model.contains(l) {
+                if !self.contains(*l) {
                     return *l; 
                 }
             }
@@ -164,7 +216,7 @@ impl Cnf {
         }
 
         // do decision
-        self.model.insert(lit);
+        self.insert(lit);
         self.decision_stack.push((lit, true));
 
         if self.solve() {
@@ -173,7 +225,7 @@ impl Cnf {
 
         // try the other one
         self.backtrack();
-        self.model.insert(-lit);
+        self.insert(-lit);
         self.decision_stack.push((-lit, true));
 
         if self.solve() {

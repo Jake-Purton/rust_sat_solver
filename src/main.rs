@@ -1,7 +1,6 @@
 mod cnf;
 
 use cnf::Cnf;
-use std::collections::HashSet;
 use std::io::Read;
 use std::time::Instant;
 
@@ -44,7 +43,7 @@ fn main() {
         clauses.push(current_clause);
     }
 
-    let mut cnf = Cnf {clauses, model: HashSet::new(), decision_stack: Vec::new()};
+    let mut cnf = Cnf::new(clauses);
 
     // println!("{:?}", cnf);
     // To solve after loading:
