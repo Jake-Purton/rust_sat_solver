@@ -137,7 +137,7 @@ impl Cnf {
         loop {
             let mut found_unit = false;
 
-            for (index, clause) in self.clauses.iter().enumerate() {
+            for index in 0..self.clauses.len() {
 
                 match self.evaluate_clause(index) {
                     Decision::True => continue,
@@ -145,20 +145,25 @@ impl Cnf {
                     Decision::Undecided => (),
                 }
 
-                // get all of the unassigned literals
-                let unassigned: Vec<i32> = clause
-                    .iter()
-                    .filter(|lit| !self.contains(**lit))
-                    .cloned()
-                    .collect();
 
-                if unassigned.len() == 1 {
-                    let lit = unassigned[0];
-                    self.insert(lit);
-                    self.decision_stack.push((lit, false)); // false = implied, not a decision
-                    found_unit = true;
-                    break; // restart scanning after each propagation
+                let mut unassigned_count = 0;
+                let mut last_unassigned = 0;
+                for lit in &self.clauses[index] {
+                    if self.is_true(*lit) {
+                        break;
+                    }
+                    if !self.contains(*lit) {
+                        unassigned_count += 1;
+                        last_unassigned = *lit;
+                    }
                 }
+
+                if unassigned_count == 1 {
+                    self.insert(last_unassigned);
+                    self.decision_stack.push((last_unassigned, false));
+                    found_unit = true;
+                }
+
             }
 
             if !found_unit {
@@ -204,10 +209,8 @@ impl Cnf {
         }
 
         // check if it's solved
-        for i in 0..self.clauses.len() {
-            if matches!(self.evaluate_clause(i), Decision::True) {
-                return true;
-            }
+        if self.clauses.iter().enumerate().all(|c| matches!(self.evaluate_clause(c.0), Decision::True)) {
+            return true;
         }
 
         let lit = self.choose_unassigned_literal();
