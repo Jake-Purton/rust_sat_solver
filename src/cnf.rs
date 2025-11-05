@@ -189,16 +189,16 @@ impl Cnf {
 
     }
 
-    pub fn choose_unassigned_literal (&self) -> i32 {
+    pub fn choose_unassigned_literal (&self) -> Option<i32> {
         for i in &self.clauses {
             for l in i {
                 if !self.contains(*l) {
-                    return *l; 
+                    return Some(*l); 
                 }
             }
         }
 
-        0
+        None
     }
 
     pub fn solve (&mut self) -> bool {
@@ -214,9 +214,11 @@ impl Cnf {
         }
 
         let lit = self.choose_unassigned_literal();
-        if lit == 0 {
+        if lit.is_none() {
             return true;
         }
+
+        let lit = lit.unwrap();
 
         // do decision
         self.insert(lit);
@@ -238,5 +240,26 @@ impl Cnf {
         // failed
         self.backtrack();
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sat() {
+        // (x1 or x2) and (not x1 or x2) and (not x2 or x3)
+        let clauses = vec![vec![1, 2], vec![-1, 2], vec![-2, 3]];
+        let mut cnf = Cnf::new(clauses);
+        assert!(cnf.solve());
+    }
+
+    #[test]
+    fn test_unsat() {
+        // (x1) and (not x1)
+        let clauses = vec![vec![1], vec![-1]];
+        let mut cnf = Cnf::new(clauses);
+        assert!(!cnf.solve());
     }
 }
