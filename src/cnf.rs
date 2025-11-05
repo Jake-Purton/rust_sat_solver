@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
-pub struct CNF {
+pub struct Cnf {
     pub clauses: Vec<Vec<i32>>,
     
     pub model: HashSet<i32>,
@@ -19,12 +19,12 @@ enum Decision {
     Undecided
 }
 
-impl CNF {
+impl Cnf {
 
     fn evaluate_clause(&self, clause: usize) -> Decision {
         let mut undecided = false;
         for literal in &self.clauses[clause] {
-            if self.model.contains(&literal) {
+            if self.model.contains(literal) {
                 return Decision::True;
             } else if !self.model.contains(&-literal) {
                 undecided = true;
@@ -32,9 +32,9 @@ impl CNF {
         }
 
         if undecided {
-            return Decision::Undecided;
+            Decision::Undecided
         } else {
-            return Decision::False
+            Decision::False
         }
     }
 
@@ -46,15 +46,15 @@ impl CNF {
                 continue;
             }
 
-            for &lit in clause {
+            for lit in clause {
                 let var = lit.abs();
                 // Skip assigned literals
-                if self.model.contains(&lit) || self.model.contains(&-lit) {
+                if self.model.contains(lit) || self.model.contains(&-lit) {
                     continue;
                 }
 
                 let entry = polarities.entry(var).or_insert(0);
-                if lit > 0 {
+                if *lit > 0 {
                     *entry |= 1; // bit 0 = positive
                 } else {
                     *entry |= 2; // bit 1 = negative
@@ -135,21 +135,19 @@ impl CNF {
     pub fn choose_unassigned_literal (&self) -> i32 {
         for i in &self.clauses {
             for l in i {
-                if !self.model.contains(&l) {
+                if !self.model.contains(l) {
                     return *l; 
                 }
             }
         }
 
-        return 0;
+        0
     }
 
     pub fn solve (&mut self) -> bool {
         self.pure_literal();
 
         if !self.unit_propigate() {
-            // Conflict — backtrack
-            // self.backtrack();
             return false;
         }
 
