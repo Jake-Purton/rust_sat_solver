@@ -4,12 +4,11 @@ mod cdclcnf;
 use cdclcnf::Cdcl;
 // use cnf::Cnf;
 use std::io::Read;
-use std::time::Instant;
+// use std::time::Instant;
 
 fn main() {
 
-    let start = Instant::now();
-
+    // let start = Instant::now();
 
     let mut buf = String::new();
     std::io::stdin().read_to_string(&mut buf).expect("failed to read stdin");
@@ -56,6 +55,6 @@ fn main() {
         println!("UNSATISFIABLE");
     }
 
-    let duration = start.elapsed();
-    println!("Elapsed: {:.3} s", duration.as_secs_f64());
+    // let duration = start.elapsed();
+    // println!("Elapsed: {:.3} s", duration.as_secs_f64());
 }
