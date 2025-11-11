@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct Cnf {
     pub clauses: Vec<Vec<i32>>,
-    
+
     pub model: Vec<Option<bool>>,
 
     // have the decisio  stack and push stuff onto it
@@ -14,38 +14,63 @@ pub struct Cnf {
     pub decision_stack: Vec<(i32, Option<usize>)>,
     pub dl: u32,
     // boolean flag is the decision flag
+
+    // watched literals for clauses
+    pub watched: Vec<(usize, usize)>,
+    // a hashmap of clauses that have these watched literals
+    pub watched_map: HashMap<i32, Vec<usize>>,
 }
-
-
 
 enum Decision {
     True,
     False,
-    Undecided
+    Undecided,
 }
 
 impl Cnf {
-
     pub fn new(clauses: Vec<Vec<i32>>) -> Self {
+        let mut watched: Vec<(usize, usize)> = vec![(0, 1); clauses.len()];
+        let mut watched_map: HashMap<i32, Vec<usize>> = HashMap::new();
 
         let mut largest = 0;
 
-        for i in &clauses {
-            for l in i {
-                if largest < *l {
-                    largest = *l;
+        for i in 0..clauses.len() {
+            if clauses[i].len() == 1 {
+                watched[i].1 = 0;
+            }
+
+            for l in 0..clauses[i].len() {
+                if largest < clauses[i][l].abs() {
+                    largest = clauses[i][l].abs();
                 }
+            }
+
+            let (w1, w2) = watched[i];
+            let lit1 = clauses[i][w1];
+
+            // i didnt know about this entry or insert its so good
+            watched_map.entry(lit1).or_default().push(i);
+
+            let lit2 = clauses[i][w2];
+            if w1 != w2 {
+                watched_map.entry(lit2).or_default().push(i);
             }
         }
 
-        Self { clauses, model: vec![None; largest as usize], decision_stack: Vec::new(), dl: 0 }
-
+        Self {
+            clauses,
+            model: vec![None; largest as usize],
+            decision_stack: Vec::new(),
+            dl: 0,
+            watched,
+            watched_map,
+        }
     }
 
     // #[inline]
     fn insert(&mut self, lit: i32) {
         let var = lit.abs() as usize;
-        
+
         if lit > 0 {
             self.model[var - 1] = Some(true);
         } else {
@@ -81,14 +106,12 @@ impl Cnf {
     // #[inline]
     fn contains(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
-        return !self.model[var-1].is_none();
+        self.model[var - 1].is_some()
     }
 
     fn evaluate_clause(&self, clause: usize) -> Decision {
         let mut undecided = false;
         for literal in &self.clauses[clause] {
-
-
             if self.is_true(*literal) {
                 return Decision::True;
             } else if !self.is_false(*literal) {
@@ -103,18 +126,16 @@ impl Cnf {
         }
     }
 
-    fn unit_propigate (&mut self) -> bool {
+    fn unit_propigate(&mut self) -> bool {
         loop {
             let mut found_unit = false;
 
             for index in 0..self.clauses.len() {
-
                 match self.evaluate_clause(index) {
                     Decision::True => continue,
                     Decision::False => return false,
                     Decision::Undecided => (),
                 }
-
 
                 let mut unassigned_count = 0;
                 let mut last_unassigned = 0;
@@ -133,7 +154,6 @@ impl Cnf {
                     self.decision_stack.push((last_unassigned, Some(index)));
                     found_unit = true;
                 }
-
             }
 
             if !found_unit {
@@ -144,11 +164,11 @@ impl Cnf {
         true
     }
 
-    pub fn choose_unassigned_literal (&self) -> Option<i32> {
+    pub fn choose_unassigned_literal(&self) -> Option<i32> {
         for i in &self.clauses {
             for l in i {
                 if !self.contains(*l) {
-                    return Some(*l); 
+                    return Some(*l);
                 }
             }
         }
@@ -167,8 +187,7 @@ impl Cnf {
         }
     }
 
-    pub fn solve_cdcl (&mut self) -> bool {
-
+    pub fn solve_cdcl(&mut self) -> bool {
         // self.clean();
         self.unit_propigate();
 
@@ -176,18 +195,16 @@ impl Cnf {
             // backtracking
 
             while self.not_satisfiable() {
-
                 if self.dl == 0 {
                     return false;
                 }
 
                 let (learned_clause, dl) = self.analyse_conflict();
-                
+
                 self.backjump(dl);
                 self.clauses.push(learned_clause);
 
                 self.unit_propigate();
-
             }
 
             // choose that variable
@@ -198,17 +215,14 @@ impl Cnf {
                 self.unit_propigate();
             }
 
-
             // end
 
             if self.all_clauses_solved() {
                 break;
             }
-
         }
 
         true
-
     }
 
     fn analyse_conflict(&self) -> (Vec<i32>, u32) {
@@ -220,7 +234,8 @@ impl Cnf {
                 break;
             }
         }
-        let mut conflict = conflict_clause.expect("analyse_conflict called but no conflict clause found");
+        let mut conflict =
+            conflict_clause.expect("analyse_conflict called but no conflict clause found");
 
         // 2️⃣ Bookkeeping
         let mut seen: HashSet<i32> = HashSet::new(); // seen variable indices (abs)
@@ -334,11 +349,9 @@ impl Cnf {
     }
 
     fn decision_level(&self, lit: i32) -> (u32, Option<usize>) {
-
         let mut dl = 0;
 
         for i in &self.decision_stack {
-
             if i.1.is_none() {
                 dl += 1;
             }
@@ -346,20 +359,18 @@ impl Cnf {
             if i.0.abs() == lit.abs() {
                 return (dl, i.1);
             }
-
         }
 
         println!("THIS SHOULD NOT OCCUR");
 
         return (0, None);
-
     }
 
     // #[inline]
-    fn not_satisfiable (&self) -> bool {
-        self.clauses.iter().any(|clause| {
-            clause.iter().all(|&lit| self.is_false(lit))
-        })
+    fn not_satisfiable(&self) -> bool {
+        self.clauses
+            .iter()
+            .any(|clause| clause.iter().all(|&lit| self.is_false(lit)))
     }
 
     // #[inline]

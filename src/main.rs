@@ -5,11 +5,12 @@ use std::io::Read;
 use std::time::Instant;
 
 fn main() {
-
     let start = Instant::now();
 
     let mut buf = String::new();
-    std::io::stdin().read_to_string(&mut buf).expect("failed to read stdin");
+    std::io::stdin()
+        .read_to_string(&mut buf)
+        .expect("failed to read stdin");
 
     let mut clauses: Vec<Vec<i32>> = Vec::new();
     let mut current_clause: Vec<i32> = Vec::new();
@@ -43,7 +44,6 @@ fn main() {
     }
 
     let mut cnf = Cnf::new(clauses);
-
 
     // println!("{:?}", cnf);
     // To solve after loading:
