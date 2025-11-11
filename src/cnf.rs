@@ -42,7 +42,7 @@ impl Cnf {
 
     }
 
-    #[inline]
+    // #[inline]
     fn insert(&mut self, lit: i32) {
         let var = lit.abs() as usize;
         
@@ -60,7 +60,7 @@ impl Cnf {
     //     self.model[var-1] = None;
     // }
 
-    #[inline]
+    // #[inline]
     fn is_true(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         match self.model[var - 1] {
@@ -69,7 +69,7 @@ impl Cnf {
         }
     }
 
-    #[inline]
+    // #[inline]
     fn is_false(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         match self.model[var - 1] {
@@ -78,7 +78,7 @@ impl Cnf {
         }
     }
 
-    #[inline]
+    // #[inline]
     fn contains(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         return !self.model[var-1].is_none();
@@ -165,39 +165,6 @@ impl Cnf {
                 }
             }
         }
-    }
-
-
-    fn clean(&mut self) {
-        let mut new_clauses = Vec::new();
-
-        for clause in &self.clauses {
-            let mut seen = std::collections::HashSet::new();
-            let mut cleaned = Vec::new();
-            let mut tautology = false;
-
-            for &lit in clause {
-                // check for tautology (contains both lit and -lit)
-                if seen.contains(&-lit) {
-                    tautology = true;
-                    break;
-                }
-
-                // insert literal if new
-                if seen.insert(lit) {
-                    cleaned.push(lit);
-                }
-            }
-
-            if !tautology {
-                // Optional: sort and deduplicate for consistency
-                cleaned.sort();
-                cleaned.dedup();
-                new_clauses.push(cleaned);
-            }
-        }
-
-        self.clauses = new_clauses;
     }
 
     pub fn solve_cdcl (&mut self) -> bool {
@@ -388,16 +355,14 @@ impl Cnf {
 
     }
 
-    fn is_partial (&self) -> bool {
-        self.model.iter().any(|assignment| *assignment == None)
-    }
-
+    // #[inline]
     fn not_satisfiable (&self) -> bool {
         self.clauses.iter().any(|clause| {
             clause.iter().all(|&lit| self.is_false(lit))
         })
     }
 
+    // #[inline]
     fn all_clauses_solved(&self) -> bool {
         // for all clauses
         self.clauses.iter().all(|clause| {
