@@ -1,8 +1,6 @@
-// mod cnf;
-mod cdclcnf;
+mod cnf;
 
-use cdclcnf::Cdcl;
-// use cnf::Cnf;
+use cnf::Cnf;
 use std::io::Read;
 // use std::time::Instant;
 
@@ -44,12 +42,13 @@ fn main() {
         clauses.push(current_clause);
     }
 
-    let mut cnf = Cdcl::new(clauses);
+    let mut cnf = Cnf::new(clauses);
+
 
     // println!("{:?}", cnf);
     // To solve after loading:
 
-    if cnf.solve_not_recursive() {
+    if cnf.solve_cdcl() {
         println!("SATISFIABLE");
     } else {
         println!("UNSATISFIABLE");

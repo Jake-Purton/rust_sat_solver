@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Cnf {
@@ -9,7 +9,10 @@ pub struct Cnf {
     // have the decisio  stack and push stuff onto it
     // when tou want to backtrack return the state that you want go back to / the level you wabt or size
     // of the stack
-    pub decision_stack: Vec<(i32, bool)>
+
+    // decision and clause
+    pub decision_stack: Vec<(i32, Option<usize>)>,
+    pub dl: u32,
     // boolean flag is the decision flag
 }
 
@@ -35,7 +38,7 @@ impl Cnf {
             }
         }
 
-        Self { clauses, model: vec![None; largest as usize], decision_stack: Vec::new() }
+        Self { clauses, model: vec![None; largest as usize], decision_stack: Vec::new(), dl: 0 }
 
     }
 
@@ -100,44 +103,6 @@ impl Cnf {
         }
     }
 
-    fn pure_literal(&mut self) {
-        let mut polarities: HashMap<i32, i8> = HashMap::new();
-
-        for (index, clause) in self.clauses.iter().enumerate() {
-            if matches!(self.evaluate_clause(index), Decision::True) {
-                continue;
-            }
-
-            for lit in clause {
-                let var = lit.abs();
-                // Skip assigned literals
-                if self.contains(*lit) {
-                    continue;
-                }
-
-                let entry = polarities.entry(var).or_insert(0);
-                if *lit > 0 {
-                    *entry |= 1; // bit 0 = positive
-                } else {
-                    *entry |= 2; // bit 1 = negative
-                }
-            }
-        }
-
-        // Find pure literals (only one polarity)
-        for (&var, &mask) in polarities.iter() {
-            if mask == 1 {
-                // Pure positive
-                self.insert(var);
-                self.decision_stack.push((var, false)); // implied
-            } else if mask == 2 {
-                // Pure negative
-                self.insert(-var);
-                self.decision_stack.push((-var, false));
-            }
-        }
-    }
-
     fn unit_propigate (&mut self) -> bool {
         loop {
             let mut found_unit = false;
@@ -165,7 +130,7 @@ impl Cnf {
 
                 if unassigned_count == 1 {
                     self.insert(last_unassigned);
-                    self.decision_stack.push((last_unassigned, false));
+                    self.decision_stack.push((last_unassigned, Some(index)));
                     found_unit = true;
                 }
 
@@ -177,21 +142,6 @@ impl Cnf {
         }
 
         true
-    }
-
-    // backtrack to before the last decision
-    pub fn backtrack (&mut self) {
-
-        while let Some(a) = self.decision_stack.pop() {
-            
-            self.remove(a.0);
-
-            if a.1 {
-                return;
-            }
-
-        }
-
     }
 
     pub fn choose_unassigned_literal (&self) -> Option<i32> {
@@ -206,118 +156,258 @@ impl Cnf {
         None
     }
 
-    pub fn solve_not_recursive(&mut self) -> bool {
-        self.pure_literal();
+    fn backjump(&mut self, dl: u32) {
+        while dl < self.dl {
+            if let Some((lit, reason)) = self.decision_stack.pop() {
+                self.model[lit.abs() as usize - 1] = None;
+                if reason.is_none() {
+                    self.dl -= 1;
+                }
+            }
+        }
+    }
 
-        // the decision and a boolean to store if we have tried that decisions negation
-        let mut decisions: Vec<(i32, bool)> = Vec::new();
 
-        loop {
-            // if there is a conflict 
-            if !self.unit_propigate() {
+    fn clean(&mut self) {
+        let mut new_clauses = Vec::new();
 
+        for clause in &self.clauses {
+            let mut seen = std::collections::HashSet::new();
+            let mut cleaned = Vec::new();
+            let mut tautology = false;
 
-                if let Some((last_decision, tried_neg)) = decisions.pop() {
-                    self.backtrack();
+            for &lit in clause {
+                // check for tautology (contains both lit and -lit)
+                if seen.contains(&-lit) {
+                    tautology = true;
+                    break;
+                }
 
-                    if !tried_neg {
-                        // try the opposite branch
-                        self.insert(-last_decision);
-                        self.decision_stack.push((-last_decision, true));
-                        decisions.push((-last_decision, true));
-                        continue;
-                    } else {
-                        // keep going back
-                        continue;
-                    }
-                } else {
-                    // Nothing left to backtrack — unsat
-                    return false;
+                // insert literal if new
+                if seen.insert(lit) {
+                    cleaned.push(lit);
                 }
             }
 
-            // Check if solved
-            if self
-                .clauses
-                .iter()
-                .enumerate()
-                .all(|(i, _)| matches!(self.evaluate_clause(i), Decision::True))
-            {
-                return true;
+            if !tautology {
+                // Optional: sort and deduplicate for consistency
+                cleaned.sort();
+                cleaned.dedup();
+                new_clauses.push(cleaned);
+            }
+        }
+
+        self.clauses = new_clauses;
+    }
+
+    pub fn solve_cdcl (&mut self) -> bool {
+
+        self.clean();
+        self.unit_propigate();
+
+        loop {
+            // backtracking
+
+            while self.not_satisfiable() {
+
+                if self.dl == 0 {
+                    return false;
+                }
+
+                let (learned_clause, dl) = self.analyse_conflict();
+                
+                self.backjump(dl);
+                self.clauses.push(learned_clause);
+
+                self.unit_propigate();
+
             }
 
-            // choose
-            let Some(lit) = self.choose_unassigned_literal() else {
-                return true; // All assigned
-            };
+            // choosing
 
-            // assign
-            self.insert(lit);
-            self.decision_stack.push((lit, true));
-            decisions.push((lit, false));
+            if self.is_partial() {
+
+                // choose that variable
+                self.dl += 1;
+                let l = self.choose_unassigned_literal().unwrap();
+                self.decision_stack.push((l, None));
+                self.insert(l);
+
+                self.unit_propigate();
+            }
+
+
+            // end
+
+            if self.all_clauses_solved() {
+                break;
+            }
+
         }
+
+        true
+
     }
 
+    fn analyse_conflict(&self) -> (Vec<i32>, u32) {
+        // 1️⃣ Find the conflicting clause
+        let mut conflict_clause = None;
+        for clause in &self.clauses {
+            if clause.iter().all(|&lit| self.is_false(lit)) {
+                conflict_clause = Some(clause.clone());
+                break;
+            }
+        }
+        let mut conflict = conflict_clause.expect("analyse_conflict called but no conflict clause found");
 
-    pub fn _solve (&mut self) -> bool {
-        self.pure_literal();
+        // 2️⃣ Bookkeeping
+        let mut seen: HashSet<i32> = HashSet::new(); // seen variable indices (abs)
+        let mut learnt: Vec<i32> = Vec::new();
+        let mut counter = 0; // how many lits in conflict are from current dl
+        let mut uip: i32 = 0; // the UIP literal (with sign)
+        let mut idx = self.decision_stack.len();
 
-        if !self.unit_propigate() {
-            return false;
+        // optional debug
+        // println!("[analyse_conflict] start conflict={:?} dl={}", conflict, self.dl);
+
+        // 3️⃣ Main resolution loop
+        loop {
+            // mark literals in current conflict clause
+            for &lit in &conflict {
+                let var = lit.abs();
+                if !seen.contains(&var) {
+                    seen.insert(var);
+
+                    let (dl, _) = self.decision_level(var);
+                    if dl == self.dl {
+                        counter += 1;
+                    } else {
+                        // keep literals from earlier levels for the learned clause
+                        learnt.push(lit);
+                    }
+                }
+            }
+
+            // walk backward on the decision stack to find the last assigned var that is in 'seen'
+            loop {
+                if idx == 0 {
+                    break;
+                }
+                idx -= 1;
+                uip = self.decision_stack[idx].0; // literal (signed) that was assigned
+                let var = uip.abs();
+                if seen.contains(&var) {
+                    break;
+                }
+            }
+
+            // handle corner (shouldn't normally happen)
+            if counter == 0 {
+                // no literal from current level found (shouldn't happen in normal CDCL)
+                break;
+            }
+
+            // we are resolving on the variable `uip.abs()`
+            counter -= 1;
+            if counter == 0 {
+                // found the 1-UIP: stop resolving
+                break;
+            }
+
+            // otherwise, resolve conflict with the reason clause for the UIP variable
+            let (_, reason_opt) = self.decision_level(uip.abs());
+            if let Some(reason_idx) = reason_opt {
+                let reason_clause = &self.clauses[reason_idx];
+
+                // Proper resolution: new_conflict = (conflict \ {v}) ∪ (reason_clause \ {v})
+                let v = uip.abs();
+                let mut new_conflict: Vec<i32> = Vec::new();
+                let mut inserted: HashSet<i32> = HashSet::new();
+
+                // keep conflict literals except those with var v
+                for &lit in &conflict {
+                    if lit.abs() != v {
+                        if inserted.insert(lit) {
+                            new_conflict.push(lit);
+                        }
+                    }
+                }
+
+                // add reason literals (except var v), avoid duplicates
+                for &lit in reason_clause {
+                    if lit.abs() != v {
+                        if inserted.insert(lit) {
+                            new_conflict.push(lit);
+                        }
+                    }
+                }
+
+                conflict = new_conflict;
+            } else {
+                // if no reason (decision variable), we can't resolve further
+                break;
+            }
         }
 
-        // check if it's solved
-        if self.clauses.iter().enumerate().all(|c| matches!(self.evaluate_clause(c.0), Decision::True)) {
-            return true;
-        }
+        // 4️⃣ Build learned clause: literals from earlier levels + negation of UIP
+        // negate UIP literal:
+        learnt.push(-uip);
 
-        let lit = self.choose_unassigned_literal();
-        if lit.is_none() {
-            return true;
-        }
+        // Optional: canonicalize learned clause (sort/dedup)
+        learnt.sort();
+        learnt.dedup();
 
-        let lit = lit.unwrap();
+        // 5️⃣ Compute backtrack level: max decision level among learnt literals except UIP
+        let backtrack_level = learnt
+            .iter()
+            .filter(|&&lit| lit.abs() != uip.abs())
+            .map(|&lit| self.decision_level(lit.abs()).0)
+            .max()
+            .unwrap_or(0);
 
-        // do decision
-        self.insert(lit);
-        self.decision_stack.push((lit, true));
+        // debug
+        // println!("[analyse_conflict] learned={:?} backtrack={}", learnt, backtrack_level);
 
-        if self._solve() {
-            return true;
-        }
-
-        // try the other one
-        self.backtrack();
-        self.insert(-lit);
-        self.decision_stack.push((-lit, true));
-
-        if self._solve() {
-            return true;
-        }
-
-        // failed
-        self.backtrack();
-        false
+        (learnt, backtrack_level)
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+    fn decision_level(&self, lit: i32) -> (u32, Option<usize>) {
 
-    #[test]
-    fn test_sat() {
-        // (x1 or x2) and (not x1 or x2) and (not x2 or x3)
-        let clauses = vec![vec![1, 2], vec![-1, 2], vec![-2, 3]];
-        let mut cnf = Cnf::new(clauses);
-        assert!(cnf._solve());
+        let mut dl = 0;
+
+        for i in &self.decision_stack {
+
+            if i.1.is_none() {
+                dl += 1;
+            }
+
+            if i.0.abs() == lit.abs() {
+                return (dl, i.1);
+            }
+
+        }
+
+        println!("THIS SHOULD NOT OCCUR");
+
+        return (0, None);
+
     }
 
-    #[test]
-    fn test_unsat() {
-        // (x1) and (not x1)
-        let clauses = vec![vec![1], vec![-1]];
-        let mut cnf = Cnf::new(clauses);
-        assert!(!cnf._solve());
+    fn is_partial (&self) -> bool {
+        self.model.iter().any(|assignment| *assignment == None)
+    }
+
+    fn not_satisfiable (&self) -> bool {
+        self.clauses.iter().any(|clause| {
+            clause.iter().all(|&lit| self.is_false(lit))
+        })
+    }
+
+    fn all_clauses_solved(&self) -> bool {
+        // for all clauses
+        self.clauses.iter().all(|clause| {
+            // any var must be true
+            clause.iter().any(|&lit| self.is_true(lit))
+        })
     }
 }
