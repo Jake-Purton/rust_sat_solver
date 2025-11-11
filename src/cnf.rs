@@ -53,12 +53,12 @@ impl Cnf {
         }
     }
 
-    #[inline]
-    fn remove(&mut self, lit: i32) {
-        let var = lit.abs() as usize;
+    // #[inline]
+    // fn remove(&mut self, lit: i32) {
+    //     let var = lit.abs() as usize;
 
-        self.model[var-1] = None;
-    }
+    //     self.model[var-1] = None;
+    // }
 
     #[inline]
     fn is_true(&self, lit: i32) -> bool {
@@ -202,7 +202,7 @@ impl Cnf {
 
     pub fn solve_cdcl (&mut self) -> bool {
 
-        self.clean();
+        // self.clean();
         self.unit_propigate();
 
         loop {
@@ -223,16 +223,11 @@ impl Cnf {
 
             }
 
-            // choosing
-
-            if self.is_partial() {
-
-                // choose that variable
+            // choose that variable
+            if let Some(l) = self.choose_unassigned_literal() {
                 self.dl += 1;
-                let l = self.choose_unassigned_literal().unwrap();
                 self.decision_stack.push((l, None));
                 self.insert(l);
-
                 self.unit_propigate();
             }
 
