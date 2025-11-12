@@ -119,25 +119,6 @@ impl Cnf {
         return !self.model[var-1].is_none();
     }
 
-    fn evaluate_clause(&self, clause: usize) -> Decision {
-        let mut undecided = false;
-        for literal in &self.clauses[clause] {
-
-
-            if self.is_true(*literal) {
-                return Decision::True;
-            } else if !self.is_false(*literal) {
-                undecided = true;
-            }
-        }
-
-        if undecided {
-            Decision::Undecided
-        } else {
-            Decision::False
-        }
-    }
-
     fn eval_watched(&mut self, index: usize) -> Decision {
 
         // optimise later
@@ -211,47 +192,6 @@ impl Cnf {
             for index in 0..self.clauses.len() {
 
                 match self.eval_watched(index) {
-                    Decision::True => continue,
-                    Decision::False => return false,
-                    Decision::Undecided => (),
-                }
-
-
-                let mut unassigned_count = 0;
-                let mut last_unassigned = 0;
-                for lit in &self.clauses[index] {
-                    if self.is_true(*lit) {
-                        break;
-                    }
-                    if !self.contains(*lit) {
-                        unassigned_count += 1;
-                        last_unassigned = *lit;
-                    }
-                }
-
-                if unassigned_count == 1 {
-                    self.insert(last_unassigned);
-                    self.decision_stack.push((last_unassigned, Some(index)));
-                    found_unit = true;
-                }
-
-            }
-
-            if !found_unit {
-                break; // nothing more to propagate
-            }
-        }
-
-        true
-    }
-
-    fn unit_propigate (&mut self) -> bool {
-        loop {
-            let mut found_unit = false;
-
-            for index in 0..self.clauses.len() {
-
-                match self.evaluate_clause(index) {
                     Decision::True => continue,
                     Decision::False => return false,
                     Decision::Undecided => (),
