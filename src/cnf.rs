@@ -14,6 +14,9 @@ pub struct Cnf {
     pub decision_stack: Vec<(i32, Option<usize>)>,
     pub dl: u32,
     // boolean flag is the decision flag
+
+    // watched literals for clauses
+    pub watched: Vec<(usize, usize)>,
 }
 
 
@@ -28,17 +31,49 @@ impl Cnf {
 
     pub fn new(clauses: Vec<Vec<i32>>) -> Self {
 
+        let mut watched: Vec<(usize, usize)> = vec![(0, 1); clauses.len()];
+
         let mut largest = 0;
 
-        for i in &clauses {
-            for l in i {
-                if largest < *l {
-                    largest = *l;
-                }
+
+
+        for i in 0..clauses.len() {
+
+            if clauses[i].len() == 1 {
+
+                watched[i].1 = 0;
+
             }
+
+
+
+            for l in 0..clauses[i].len() {
+
+                if largest < clauses[i][l].abs() {
+
+                    largest = clauses[i][l].abs();
+
+                }
+
+            }
+
         }
 
-        Self { clauses, model: vec![None; largest as usize], decision_stack: Vec::new(), dl: 0 }
+
+
+        Self {
+
+            clauses,
+
+            model: vec![None; largest as usize],
+
+            decision_stack: Vec::new(),
+
+            dl: 0,
+
+            watched,
+
+        }
 
     }
 
@@ -101,6 +136,113 @@ impl Cnf {
         } else {
             Decision::False
         }
+    }
+
+    fn eval_watched(&mut self, index: usize) -> Decision {
+
+        // optimise later
+
+        if self.watched[index].0 == self.watched[index].1 {
+            if self.is_false(self.clauses[index][self.watched[index].0]) {
+                return Decision::False;
+            } else if self.is_true(self.clauses[index][self.watched[index].0]) {
+                return Decision::True;
+            } else {
+                return Decision::Undecided;
+            }
+        }
+
+        // if a variable is false, you must find another
+        if self.is_false(self.clauses[index][self.watched[index].0]) {
+
+            for i in 0..self.clauses[index].len() {
+                if i == self.watched[index].0 || i == self.watched[index].1 {
+                    continue;
+                }
+
+                if !self.is_false(self.clauses[index][i]) {
+                    
+                    self.watched[index].0 = i;
+
+                    // keep it and break
+                    break;
+
+                }
+            }
+
+        }
+
+        if self.is_false(self.clauses[index][self.watched[index].1]) {
+
+            for i in 0..self.clauses[index].len() {
+                if i == self.watched[index].0 || i == self.watched[index].1 {
+                    continue;
+                }
+
+                if !self.is_false(self.clauses[index][i]) {
+                    
+                    self.watched[index].1 = i;
+
+                    // keep it and break
+                    break;
+
+                }
+            }
+
+        }
+
+        // if both are still false then unsat
+        if self.is_false(self.clauses[index][self.watched[index].0]) && self.is_false(self.clauses[index][self.watched[index].1]) {
+            return Decision::False;
+        } else if self.is_true(self.clauses[index][self.watched[index].0]) || self.is_true(self.clauses[index][self.watched[index].1]) {
+            return Decision::True;
+        } else if self.is_false(self.clauses[index][self.watched[index].0]) || self.is_false(self.clauses[index][self.watched[index].1]) {
+            // clause is unit
+            return Decision::Undecided;
+        }
+        // undecided but not unit
+        Decision::Undecided
+    }
+
+    fn unit_prop_watched (&mut self) -> bool {
+        loop {
+            let mut found_unit = false;
+
+            for index in 0..self.clauses.len() {
+
+                match self.eval_watched(index) {
+                    Decision::True => continue,
+                    Decision::False => return false,
+                    Decision::Undecided => (),
+                }
+
+
+                let mut unassigned_count = 0;
+                let mut last_unassigned = 0;
+                for lit in &self.clauses[index] {
+                    if self.is_true(*lit) {
+                        break;
+                    }
+                    if !self.contains(*lit) {
+                        unassigned_count += 1;
+                        last_unassigned = *lit;
+                    }
+                }
+
+                if unassigned_count == 1 {
+                    self.insert(last_unassigned);
+                    self.decision_stack.push((last_unassigned, Some(index)));
+                    found_unit = true;
+                }
+
+            }
+
+            if !found_unit {
+                break; // nothing more to propagate
+            }
+        }
+
+        true
     }
 
     fn unit_propigate (&mut self) -> bool {
@@ -170,7 +312,7 @@ impl Cnf {
     pub fn solve_cdcl (&mut self) -> bool {
 
         // self.clean();
-        self.unit_propigate();
+        self.unit_prop_watched();
 
         loop {
             // backtracking
@@ -184,9 +326,16 @@ impl Cnf {
                 let (learned_clause, dl) = self.analyse_conflict();
                 
                 self.backjump(dl);
+                // add watch variables for the learned clause
+                if learned_clause.len() == 1 {
+                    
+                    self.watched.push((0,0));
+                } else {
+                    self.watched.push((0,1))
+                }
                 self.clauses.push(learned_clause);
 
-                self.unit_propigate();
+                self.unit_prop_watched();
 
             }
 
@@ -195,7 +344,7 @@ impl Cnf {
                 self.dl += 1;
                 self.decision_stack.push((l, None));
                 self.insert(l);
-                self.unit_propigate();
+                self.unit_prop_watched();
             }
 
 
@@ -222,7 +371,6 @@ impl Cnf {
         }
         let mut conflict = conflict_clause.expect("analyse_conflict called but no conflict clause found");
 
-        // 2️⃣ Bookkeeping
         let mut seen: HashSet<i32> = HashSet::new(); // seen variable indices (abs)
         let mut learnt: Vec<i32> = Vec::new();
         let mut counter = 0; // how many lits in conflict are from current dl
@@ -232,7 +380,6 @@ impl Cnf {
         // optional debug
         // println!("[analyse_conflict] start conflict={:?} dl={}", conflict, self.dl);
 
-        // 3️⃣ Main resolution loop
         loop {
             // mark literals in current conflict clause
             for &lit in &conflict {
@@ -240,12 +387,13 @@ impl Cnf {
                 if !seen.contains(&var) {
                     seen.insert(var);
 
-                    let (dl, _) = self.decision_level(var);
-                    if dl == self.dl {
-                        counter += 1;
-                    } else {
-                        // keep literals from earlier levels for the learned clause
-                        learnt.push(lit);
+                    if let Some((dl, _)) = self.decision_level(var) {
+                        if dl == self.dl {
+                            counter += 1;
+                        } else {
+                            // keep literals from earlier levels for the learned clause
+                            learnt.push(lit);
+                        }
                     }
                 }
             }
@@ -276,37 +424,40 @@ impl Cnf {
                 break;
             }
 
-            // otherwise, resolve conflict with the reason clause for the UIP variable
-            let (_, reason_opt) = self.decision_level(uip.abs());
-            if let Some(reason_idx) = reason_opt {
-                let reason_clause = &self.clauses[reason_idx];
+            if let Some((_, reason_opt)) = self.decision_level(uip.abs()) {
+                if let Some(reason_idx) = reason_opt {
+                    let reason_clause = &self.clauses[reason_idx];
 
-                // Proper resolution: new_conflict = (conflict \ {v}) ∪ (reason_clause \ {v})
-                let v = uip.abs();
-                let mut new_conflict: Vec<i32> = Vec::new();
-                let mut inserted: HashSet<i32> = HashSet::new();
+                    // Proper resolution: new_conflict = (conflict \ {v}) ∪ (reason_clause \ {v})
+                    let v = uip.abs();
+                    let mut new_conflict: Vec<i32> = Vec::new();
+                    let mut inserted: HashSet<i32> = HashSet::new();
 
-                // keep conflict literals except those with var v
-                for &lit in &conflict {
-                    if lit.abs() != v {
-                        if inserted.insert(lit) {
-                            new_conflict.push(lit);
+                    // keep conflict literals except those with var v
+                    for &lit in &conflict {
+                        if lit.abs() != v {
+                            if inserted.insert(lit) {
+                                new_conflict.push(lit);
+                            }
                         }
                     }
-                }
 
-                // add reason literals (except var v), avoid duplicates
-                for &lit in reason_clause {
-                    if lit.abs() != v {
-                        if inserted.insert(lit) {
-                            new_conflict.push(lit);
+                    // add reason literals (except var v), avoid duplicates
+                    for &lit in reason_clause {
+                        if lit.abs() != v {
+                            if inserted.insert(lit) {
+                                new_conflict.push(lit);
+                            }
                         }
                     }
-                }
 
-                conflict = new_conflict;
+                    conflict = new_conflict;
+                } else {
+                    // if no reason (decision variable), we can't resolve further
+                    break;
+                }
             } else {
-                // if no reason (decision variable), we can't resolve further
+                // UIP not found in decision stack (shouldn't happen)
                 break;
             }
         }
@@ -319,11 +470,10 @@ impl Cnf {
         learnt.sort();
         learnt.dedup();
 
-        // 5️⃣ Compute backtrack level: max decision level among learnt literals except UIP
         let backtrack_level = learnt
             .iter()
             .filter(|&&lit| lit.abs() != uip.abs())
-            .map(|&lit| self.decision_level(lit.abs()).0)
+            .filter_map(|&lit| self.decision_level(lit.abs()).map(|(dl, _)| dl))
             .max()
             .unwrap_or(0);
 
@@ -333,27 +483,17 @@ impl Cnf {
         (learnt, backtrack_level)
     }
 
-    fn decision_level(&self, lit: i32) -> (u32, Option<usize>) {
-
-        let mut dl = 0;
-
-        for i in &self.decision_stack {
-
-            if i.1.is_none() {
-                dl += 1;
+    fn decision_level(&self, lit: i32) -> Option<(u32, Option<usize>)> {
+        for (i, &(v, reason)) in self.decision_stack.iter().enumerate() {
+            if v.abs() == lit.abs() {
+                let dl = self.decision_stack[..=i].iter().filter(|&&(_, r)| r.is_none()).count() as u32;
+                return Some((dl, reason));
             }
-
-            if i.0.abs() == lit.abs() {
-                return (dl, i.1);
-            }
-
         }
-
-        println!("THIS SHOULD NOT OCCUR");
-
-        return (0, None);
-
+        None  // literal not in decision stack
     }
+
+
 
     fn not_satisfiable (&self) -> bool {
         self.clauses.iter().any(|clause| {
