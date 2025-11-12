@@ -26,13 +26,6 @@ enum UnitOrNot {
     True
 }
 
-
-enum Decision {
-    True,
-    False,
-    Undecided
-}
-
 impl Cnf {
 
     pub fn new(clauses: Vec<Vec<i32>>) -> Self {
@@ -247,18 +240,20 @@ impl Cnf {
     pub fn solve_cdcl (&mut self) -> bool {
 
         // self.clean();
-        self.unit_prop_watched();
+        if let Some (_) = self.unit_prop_watched() {
+            return false;
+        }
 
         loop {
             // backtracking
 
-            while self.not_satisfiable() {
+            while let Some(ci) = self.unit_prop_watched() {
 
                 if self.dl == 0 {
                     return false;
                 }
 
-                let (learned_clause, dl) = self.analyse_conflict();
+                let (learned_clause, dl) = self.analyse_conflict(ci);
                 
                 self.backjump(dl);
                 // add watch variables for the learned clause
@@ -295,15 +290,8 @@ impl Cnf {
 
     }
 
-    fn analyse_conflict(&self) -> (Vec<i32>, u32) {
-        let mut conflict_clause = None;
-        for clause in &self.clauses {
-            if clause.iter().all(|&lit| self.is_false(lit)) {
-                conflict_clause = Some(clause.clone());
-                break;
-            }
-        }
-        let mut conflict = conflict_clause.expect("analyse_conflict called but no conflict clause found");
+    fn analyse_conflict(&self, conflict_index: usize) -> (Vec<i32>, u32) {
+        let mut conflict = self.clauses[conflict_index].clone();
 
         let mut seen: HashSet<i32> = HashSet::new(); // seen variable indices (abs)
         let mut learnt: Vec<i32> = Vec::new();
@@ -425,14 +413,6 @@ impl Cnf {
             }
         }
         None  // literal not in decision stack
-    }
-
-
-
-    fn not_satisfiable (&self) -> bool {
-        self.clauses.iter().any(|clause| {
-            clause.iter().all(|&lit| self.is_false(lit))
-        })
     }
 
     fn all_clauses_solved(&self) -> bool {
