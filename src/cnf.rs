@@ -19,6 +19,12 @@ pub struct Cnf {
     pub watched: Vec<(usize, usize)>,
 }
 
+enum UnitOrNot {
+    Undecided,
+    False,
+    Unit(i32),
+    True
+}
 
 
 enum Decision {
@@ -119,17 +125,17 @@ impl Cnf {
         return !self.model[var-1].is_none();
     }
 
-    fn eval_watched(&mut self, index: usize) -> Decision {
+    fn eval_watched(&mut self, index: usize) -> UnitOrNot {
 
         // optimise later
 
         if self.watched[index].0 == self.watched[index].1 {
             if self.is_false(self.clauses[index][self.watched[index].0]) {
-                return Decision::False;
+                return UnitOrNot::False;
             } else if self.is_true(self.clauses[index][self.watched[index].0]) {
-                return Decision::True;
+                return UnitOrNot::True;
             } else {
-                return Decision::Undecided;
+                return UnitOrNot::Unit(self.clauses[index][self.watched[index].0]);
             }
         }
 
@@ -174,46 +180,35 @@ impl Cnf {
 
         // if both are still false then unsat
         if self.is_false(self.clauses[index][self.watched[index].0]) && self.is_false(self.clauses[index][self.watched[index].1]) {
-            return Decision::False;
+            return UnitOrNot::False;
         } else if self.is_true(self.clauses[index][self.watched[index].0]) || self.is_true(self.clauses[index][self.watched[index].1]) {
-            return Decision::True;
-        } else if self.is_false(self.clauses[index][self.watched[index].0]) || self.is_false(self.clauses[index][self.watched[index].1]) {
-            // clause is unit
-            return Decision::Undecided;
+            return UnitOrNot::True;
+        } else if self.is_false(self.clauses[index][self.watched[index].0]) {
+            return UnitOrNot::Unit(self.clauses[index][self.watched[index].1]);
+        } else if self.is_false(self.clauses[index][self.watched[index].1]) {
+            return UnitOrNot::Unit(self.clauses[index][self.watched[index].0]);
         }
+
         // undecided but not unit
-        Decision::Undecided
+        UnitOrNot::Undecided
     }
 
-    fn unit_prop_watched (&mut self) -> bool {
+    // return none if no conflict else the conflicting clause
+    fn unit_prop_watched (&mut self) -> Option<usize> {
         loop {
             let mut found_unit = false;
 
             for index in 0..self.clauses.len() {
 
                 match self.eval_watched(index) {
-                    Decision::True => continue,
-                    Decision::False => return false,
-                    Decision::Undecided => (),
-                }
-
-
-                let mut unassigned_count = 0;
-                let mut last_unassigned = 0;
-                for lit in &self.clauses[index] {
-                    if self.is_true(*lit) {
-                        break;
-                    }
-                    if !self.contains(*lit) {
-                        unassigned_count += 1;
-                        last_unassigned = *lit;
-                    }
-                }
-
-                if unassigned_count == 1 {
-                    self.insert(last_unassigned);
-                    self.decision_stack.push((last_unassigned, Some(index)));
-                    found_unit = true;
+                    UnitOrNot::True => continue,
+                    UnitOrNot::False => return Some(index),
+                    UnitOrNot::Undecided => continue,
+                    UnitOrNot::Unit(unit) => {
+                        self.insert(unit);
+                        self.decision_stack.push((unit, Some(index)));
+                        found_unit = true;
+                    },
                 }
 
             }
@@ -223,7 +218,7 @@ impl Cnf {
             }
         }
 
-        true
+        None
     }
 
     pub fn choose_unassigned_literal (&self) -> Option<i32> {
@@ -301,7 +296,6 @@ impl Cnf {
     }
 
     fn analyse_conflict(&self) -> (Vec<i32>, u32) {
-        // 1️⃣ Find the conflicting clause
         let mut conflict_clause = None;
         for clause in &self.clauses {
             if clause.iter().all(|&lit| self.is_false(lit)) {
