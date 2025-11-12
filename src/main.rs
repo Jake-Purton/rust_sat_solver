@@ -48,7 +48,7 @@ fn main() {
     // println!("{:?}", cnf);
     // To solve after loading:
 
-    if cnf.solve_cdcl_watched() {
+    if cnf.solve_cdcl() {
         println!("SATISFIABLE");
     } else {
         println!("UNSATISFIABLE");

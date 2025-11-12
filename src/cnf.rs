@@ -1,9 +1,9 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct Cnf {
     pub clauses: Vec<Vec<i32>>,
-
+    
     pub model: Vec<Option<bool>>,
 
     // have the decisio  stack and push stuff onto it
@@ -14,63 +14,38 @@ pub struct Cnf {
     pub decision_stack: Vec<(i32, Option<usize>)>,
     pub dl: u32,
     // boolean flag is the decision flag
-
-    // watched literals for clauses
-    pub watched: Vec<(usize, usize)>,
-    // a hashmap of clauses that have these watched literals
-    pub watched_map: HashMap<i32, Vec<usize>>,
 }
+
+
 
 enum Decision {
     True,
     False,
-    Undecided,
+    Undecided
 }
 
 impl Cnf {
+
     pub fn new(clauses: Vec<Vec<i32>>) -> Self {
-        let mut watched: Vec<(usize, usize)> = vec![(0, 1); clauses.len()];
-        let mut watched_map: HashMap<i32, Vec<usize>> = HashMap::new();
 
         let mut largest = 0;
 
-        for i in 0..clauses.len() {
-            if clauses[i].len() == 1 {
-                watched[i].1 = 0;
-            }
-
-            for l in 0..clauses[i].len() {
-                if largest < clauses[i][l].abs() {
-                    largest = clauses[i][l].abs();
+        for i in &clauses {
+            for l in i {
+                if largest < *l {
+                    largest = *l;
                 }
             }
-
-            let (w1, w2) = watched[i];
-            let lit1 = clauses[i][w1];
-
-            // i didnt know about this entry or insert its so good
-            watched_map.entry(lit1).or_default().push(i);
-
-            let lit2 = clauses[i][w2];
-            if w1 != w2 {
-                watched_map.entry(lit2).or_default().push(i);
-            }
         }
 
-        Self {
-            clauses,
-            model: vec![None; largest as usize],
-            decision_stack: Vec::new(),
-            dl: 0,
-            watched,
-            watched_map,
-        }
+        Self { clauses, model: vec![None; largest as usize], decision_stack: Vec::new(), dl: 0 }
+
     }
 
-    // #[inline]
+    #[inline]
     fn insert(&mut self, lit: i32) {
         let var = lit.abs() as usize;
-
+        
         if lit > 0 {
             self.model[var - 1] = Some(true);
         } else {
@@ -85,7 +60,7 @@ impl Cnf {
     //     self.model[var-1] = None;
     // }
 
-    // #[inline]
+    #[inline]
     fn is_true(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         match self.model[var - 1] {
@@ -94,7 +69,7 @@ impl Cnf {
         }
     }
 
-    // #[inline]
+    #[inline]
     fn is_false(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
         match self.model[var - 1] {
@@ -103,15 +78,17 @@ impl Cnf {
         }
     }
 
-    // #[inline]
+    #[inline]
     fn contains(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
-        self.model[var - 1].is_some()
+        return !self.model[var-1].is_none();
     }
 
     fn evaluate_clause(&self, clause: usize) -> Decision {
         let mut undecided = false;
         for literal in &self.clauses[clause] {
+
+
             if self.is_true(*literal) {
                 return Decision::True;
             } else if !self.is_false(*literal) {
@@ -125,84 +102,19 @@ impl Cnf {
             Decision::False
         }
     }
-    
-    fn unit_propagate_watched(&mut self) -> Result<(), usize> {
-        let mut queue: VecDeque<i32> = VecDeque::new();
 
-        // Add all recent decision literals to the propagation queue
-        for &(lit, reason) in &self.decision_stack {
-            if reason.is_none() {
-                queue.push_back(lit);
-            }
-        }
-
-        while let Some(lit) = queue.pop_front() {
-            let neg_lit = -lit;
-
-            // Get clauses watching -lit
-            let watch_list = match self.watched_map.get(&neg_lit) {
-                Some(list) => list.clone(), // clone to avoid borrow issues
-                None => continue,
-            };
-
-            for &clause_idx in &watch_list {
-                let clause = &self.clauses[clause_idx];
-                let (w1, w2) = self.watched[clause_idx];
-
-                // Identify which watched literal is neg_lit
-                let (watched_idx, other_idx) = if clause[w1] == neg_lit { (w1, w2) } else { (w2, w1) };
-
-                // Try to find a new unassigned literal to watch
-                let mut moved = false;
-                for (i, &lit2) in clause.iter().enumerate() {
-                    if i != w1 && i != w2 && !self.contains(lit2) {
-                        // Move the watch
-                        self.watched[clause_idx] = if watched_idx == w1 { (i, w2) } else { (w1, i) };
-
-                        // Update watched_map
-                        self.watched_map.entry(lit2).or_default().push(clause_idx);
-                        if let Some(vec) = self.watched_map.get_mut(&neg_lit) {
-                            vec.retain(|&x| x != clause_idx);
-                        }
-
-                        moved = true;
-                        break;
-                    }
-                }
-
-                if !moved {
-                    let other_lit = clause[other_idx];
-
-                    if self.is_true(other_lit) {
-                        continue; // Clause satisfied
-                    } else if !self.contains(other_lit) {
-                        // Unit clause → propagate
-                        self.insert(other_lit);
-                        self.decision_stack.push((other_lit, Some(clause_idx)));
-                        queue.push_back(other_lit);
-                    } else {
-                        // Conflict: both watched literals false
-                        return Err(clause_idx);
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-
-
-    fn unit_propigate(&mut self) -> bool {
+    fn unit_propigate (&mut self) -> bool {
         loop {
             let mut found_unit = false;
 
             for index in 0..self.clauses.len() {
+
                 match self.evaluate_clause(index) {
                     Decision::True => continue,
                     Decision::False => return false,
                     Decision::Undecided => (),
                 }
+
 
                 let mut unassigned_count = 0;
                 let mut last_unassigned = 0;
@@ -221,6 +133,7 @@ impl Cnf {
                     self.decision_stack.push((last_unassigned, Some(index)));
                     found_unit = true;
                 }
+
             }
 
             if !found_unit {
@@ -231,11 +144,11 @@ impl Cnf {
         true
     }
 
-    pub fn choose_unassigned_literal(&self) -> Option<i32> {
+    pub fn choose_unassigned_literal (&self) -> Option<i32> {
         for i in &self.clauses {
             for l in i {
                 if !self.contains(*l) {
-                    return Some(*l);
+                    return Some(*l); 
                 }
             }
         }
@@ -254,205 +167,27 @@ impl Cnf {
         }
     }
 
-    fn analyse_conflict_with_clause(&self, conflict_clause: &[i32]) -> (Vec<i32>, u32) {
-        let mut conflict = conflict_clause.to_vec();
+    pub fn solve_cdcl (&mut self) -> bool {
 
-        // bookkeeping
-        let mut seen: HashSet<i32> = HashSet::new(); // variable indices seen
-        let mut learnt: Vec<i32> = Vec::new();
-        let mut counter = 0; // literals from current decision level
-        let mut uip: i32 = 0; // 1-UIP literal
-        let mut idx = self.decision_stack.len();
-
-        loop {
-            // mark literals in current conflict clause
-            for &lit in &conflict {
-                let var = lit.abs();
-                if !seen.contains(&var) {
-                    seen.insert(var);
-
-                    let (dl, _) = self.decision_level(var);
-                    if dl == self.dl {
-                        counter += 1;
-                    } else {
-                        learnt.push(lit); // keep literals from previous levels
-                    }
-                }
-            }
-
-            // walk backward on the decision stack to find last assigned var in 'seen'
-            while idx > 0 {
-                idx -= 1;
-                uip = self.decision_stack[idx].0;
-                if seen.contains(&uip.abs()) {
-                    break;
-                }
-            }
-
-            if counter == 0 {
-                // no literal from current level (should not happen normally)
-                break;
-            }
-
-            counter -= 1;
-            if counter == 0 {
-                // found 1-UIP → stop resolving
-                break;
-            }
-
-            // resolve with reason clause if exists
-            let (_, reason_opt) = self.decision_level(uip.abs());
-            if let Some(reason_idx) = reason_opt {
-                let reason_clause = &self.clauses[reason_idx];
-
-                // resolution: (conflict \ {v}) ∪ (reason_clause \ {v})
-                let v = uip.abs();
-                let mut new_conflict: Vec<i32> = Vec::new();
-                let mut inserted: HashSet<i32> = HashSet::new();
-
-                for &lit in &conflict {
-                    if lit.abs() != v && inserted.insert(lit) {
-                        new_conflict.push(lit);
-                    }
-                }
-
-                for &lit in reason_clause {
-                    if lit.abs() != v && inserted.insert(lit) {
-                        new_conflict.push(lit);
-                    }
-                }
-
-                conflict = new_conflict;
-            } else {
-                // decision variable → cannot resolve further
-                break;
-            }
-        }
-
-        // build learned clause: negation of UIP + literals from earlier levels
-        learnt.push(-uip);
-
-        // optional: canonicalize
-        learnt.sort();
-        learnt.dedup();
-
-        // backtrack level: max decision level among learnt literals except UIP
-        let backtrack_level = learnt
-            .iter()
-            .filter(|&&lit| lit.abs() != uip.abs())
-            .map(|&lit| self.decision_level(lit.abs()).0)
-            .max()
-            .unwrap_or(0);
-
-        (learnt, backtrack_level)
-    }
-
-    fn analyse_conflict_from_clause(&self, conflict_idx: usize) -> (Vec<i32>, u32) {
-        let conflict_clause = &self.clauses[conflict_idx];
-        self.analyse_conflict_with_clause(conflict_clause)
-    }
-
-    fn decision_level(&self, lit: i32) -> (u32, Option<usize>) {
-        for (i, &(v, reason)) in self.decision_stack.iter().enumerate() {
-            if v.abs() == lit.abs() {
-                // count number of decision literals up to index i
-                let dl = self.decision_stack[..=i].iter().filter(|&&(_, r)| r.is_none()).count() as u32;
-                return (dl, reason);
-            }
-        }
-        panic!("decision_level called for literal {} which is not in the decision stack", lit);
-    }
-
-    
-    pub fn solve_cdcl_watched(&mut self) -> bool {
-        // initial propagation
-        if let Err(conflict_idx) = self.unit_propagate_watched() {
-            // conflict at root level → UNSAT
-            return false;
-        }
-
-        loop {
-            // 1️⃣ propagate units until conflict
-            while let Err(conflict_idx) = self.unit_propagate_watched() {
-                if self.dl == 0 {
-                    return false; // unsatisfiable at root
-                }
-
-                // analyse conflict using the conflicting clause index
-                let (learned_clause, backtrack_level) =
-                    self.analyse_conflict_from_clause(conflict_idx);
-
-                // backjump to backtrack_level
-                self.backjump(backtrack_level);
-
-                // add learned clause
-                let clause_idx = self.clauses.len();
-                self.clauses.push(learned_clause.clone());
-
-                // initialize watched literals for learned clause
-                let w1 = 0;
-                let w2 = if learned_clause.len() > 1 { 1 } else { 0 };
-                self.watched.push((w1, w2));
-
-                let lit1 = learned_clause[w1];
-                self.watched_map.entry(lit1).or_default().push(clause_idx);
-
-                let lit2 = learned_clause[w2];
-                if w1 != w2 {
-                    self.watched_map.entry(lit2).or_default().push(clause_idx);
-                }
-
-                // if the learned clause is a unit, propagate immediately
-                if learned_clause.len() == 1 {
-                    let lit = learned_clause[0];
-                    if !self.contains(lit) {
-                        self.insert(lit);
-                        self.decision_stack.push((lit, Some(clause_idx)));
-                    }
-                }
-            }
-
-            // 2️⃣ choose next decision literal
-            if let Some(l) = self.choose_unassigned_literal() {
-                self.dl += 1;
-                self.decision_stack.push((l, None));
-                self.insert(l);
-
-                // propagate newly assigned decision literal
-                if let Err(_) = self.unit_propagate_watched() {
-                    continue; // conflict handled in next iteration
-                }
-            }
-
-            // 3️⃣ check if all clauses are satisfied
-            if self.all_clauses_solved() {
-                break; // SAT
-            }
-        }
-
-        true
-    }
-
-    pub fn solve_cdcl(&mut self) -> bool {
         // self.clean();
-        if !self.unit_propigate() {
-            return false;
-        }
+        self.unit_propigate();
 
         loop {
             // backtracking
 
-            while !self.unit_propigate() {
+            while self.not_satisfiable() {
+
                 if self.dl == 0 {
                     return false;
                 }
 
                 let (learned_clause, dl) = self.analyse_conflict();
-
+                
                 self.backjump(dl);
                 self.clauses.push(learned_clause);
 
                 self.unit_propigate();
+
             }
 
             // choose that variable
@@ -460,19 +195,20 @@ impl Cnf {
                 self.dl += 1;
                 self.decision_stack.push((l, None));
                 self.insert(l);
-                if !self.unit_propigate() {
-                    continue;
-                }
+                self.unit_propigate();
             }
+
 
             // end
 
             if self.all_clauses_solved() {
                 break;
             }
+
         }
 
         true
+
     }
 
     fn analyse_conflict(&self) -> (Vec<i32>, u32) {
@@ -484,8 +220,7 @@ impl Cnf {
                 break;
             }
         }
-        let mut conflict =
-            conflict_clause.expect("analyse_conflict called but no conflict clause found");
+        let mut conflict = conflict_clause.expect("analyse_conflict called but no conflict clause found");
 
         // 2️⃣ Bookkeeping
         let mut seen: HashSet<i32> = HashSet::new(); // seen variable indices (abs)
@@ -598,25 +333,34 @@ impl Cnf {
         (learnt, backtrack_level)
     }
 
-    // fn decision_level(&self, lit: i32) -> (u32, Option<usize>) {
-    //     let mut dl = 0;
+    fn decision_level(&self, lit: i32) -> (u32, Option<usize>) {
 
-    //     for i in &self.decision_stack {
-    //         if i.1.is_none() {
-    //             dl += 1;
-    //         }
+        let mut dl = 0;
 
-    //         if i.0.abs() == lit.abs() {
-    //             return (dl, i.1);
-    //         }
-    //     }
+        for i in &self.decision_stack {
 
-    //     println!("THIS SHOULD NOT OCCUR");
+            if i.1.is_none() {
+                dl += 1;
+            }
 
-    //     return (0, None);
-    // }
+            if i.0.abs() == lit.abs() {
+                return (dl, i.1);
+            }
 
-    // #[inline]
+        }
+
+        println!("THIS SHOULD NOT OCCUR");
+
+        return (0, None);
+
+    }
+
+    fn not_satisfiable (&self) -> bool {
+        self.clauses.iter().any(|clause| {
+            clause.iter().all(|&lit| self.is_false(lit))
+        })
+    }
+
     fn all_clauses_solved(&self) -> bool {
         // for all clauses
         self.clauses.iter().all(|clause| {
