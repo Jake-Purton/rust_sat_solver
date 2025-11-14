@@ -21,6 +21,9 @@ pub struct Cnf {
     // map the variable to the
     // clauses watching it
     pub watchers: HashMap<i32, Vec<usize>>,
+    // HashMap to track unit clauses: maps unit literal to clause indices
+    // that are unit with that literal as the only unassigned/true literal
+    pub unit_clauses: HashMap<i32, Vec<usize>>,
 }
 
 enum UnitOrNot {
@@ -74,6 +77,8 @@ impl Cnf {
             watched,
 
             watchers,
+
+            unit_clauses: HashMap::new(),
         }
     }
 
@@ -222,24 +227,64 @@ impl Cnf {
 
     // return none if no conflict else the conflicting clause
     fn unit_prop_watched(&mut self) -> Option<usize> {
-        loop {
-            let mut found_unit = false;
-
-            for index in 0..self.clauses.len() {
-                match self.eval_watched(index) {
-                    UnitOrNot::True => continue,
-                    UnitOrNot::False => return Some(index),
-                    UnitOrNot::Undecided => continue,
-                    UnitOrNot::Unit(unit) => {
-                        self.insert(unit);
-                        self.decision_stack.push((unit, Some(index)));
-                        found_unit = true;
+        // Use a work queue to track literals that have been assigned and need propagation
+        let mut propagation_queue: Vec<i32> = Vec::new();
+        
+        // Use unit_clauses HashMap to track current unit clauses in this propagation
+        self.unit_clauses.clear();
+        
+        // Initial scan: find all current unit clauses
+        for index in 0..self.clauses.len() {
+            match self.eval_watched(index) {
+                UnitOrNot::True => continue,
+                UnitOrNot::False => return Some(index),
+                UnitOrNot::Undecided => continue,
+                UnitOrNot::Unit(unit) => {
+                    self.unit_clauses.entry(unit).or_default().push(index);
+                }
+            }
+        }
+        
+        // Process all units from the unit_clauses HashMap
+        // We need to clone the keys to avoid borrow checker issues
+        let unit_lits: Vec<i32> = self.unit_clauses.keys().copied().collect();
+        for unit_lit in unit_lits {
+            if let Some(clause_indices) = self.unit_clauses.get(&unit_lit).cloned() {
+                // Pick the first clause for this unit (arbitrary but valid)
+                if let Some(&clause_idx) = clause_indices.first() {
+                    if !self.contains(unit_lit) {
+                        self.insert(unit_lit);
+                        self.decision_stack.push((unit_lit, Some(clause_idx)));
+                        propagation_queue.push(unit_lit);
                     }
                 }
             }
-
-            if !found_unit {
-                break; // nothing more to propagate
+        }
+        // Clear after processing initial units
+        self.unit_clauses.clear();
+        
+        // Propagate assignments using the watchers HashMap
+        while let Some(assigned_lit) = propagation_queue.pop() {
+            let neg_lit = -assigned_lit;
+            
+            // Get clauses watching the negation of the assigned literal
+            let watching_clauses: Vec<usize> = self.watchers.get(&neg_lit)
+                .map(|v| v.clone())
+                .unwrap_or_default();
+            
+            for &clause_idx in &watching_clauses {
+                match self.eval_watched(clause_idx) {
+                    UnitOrNot::True => continue,
+                    UnitOrNot::False => return Some(clause_idx),
+                    UnitOrNot::Undecided => continue,
+                    UnitOrNot::Unit(unit) => {
+                        if !self.contains(unit) {
+                            self.insert(unit);
+                            self.decision_stack.push((unit, Some(clause_idx)));
+                            propagation_queue.push(unit);
+                        }
+                    }
+                }
             }
         }
 
