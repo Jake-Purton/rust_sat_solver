@@ -48,6 +48,20 @@ impl Cnf {
             }
         }
 
+        // Initialize watchers HashMap
+        let mut watchers: HashMap<i32, Vec<usize>> = HashMap::new();
+        for (ci, clause) in clauses.iter().enumerate() {
+            if clause.len() == 1 {
+                let lit = clause[0];
+                watchers.entry(lit).or_default().push(ci);
+            } else if clause.len() >= 2 {
+                let lit1 = clause[0];
+                let lit2 = clause[1];
+                watchers.entry(lit1).or_default().push(ci);
+                watchers.entry(lit2).or_default().push(ci);
+            }
+        }
+
         Self {
             clauses,
 
@@ -59,7 +73,7 @@ impl Cnf {
 
             watched,
 
-            watchers: HashMap::new(),
+            watchers,
         }
     }
 
@@ -120,32 +134,70 @@ impl Cnf {
 
         // if a variable is false, you must find another
         if self.is_false(self.clauses[index][self.watched[index].0]) {
+            let old_lit = self.clauses[index][self.watched[index].0];
+            let mut found_replacement = false;
+            
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
                 }
 
                 if !self.is_false(self.clauses[index][i]) {
+                    let new_lit = self.clauses[index][i];
+                    
+                    // Update watchers HashMap
+                    if let Some(list) = self.watchers.get_mut(&old_lit) {
+                        list.retain(|&ci| ci != index);
+                        if list.is_empty() {
+                            self.watchers.remove(&old_lit);
+                        }
+                    }
+                    self.watchers.entry(new_lit).or_default().push(index);
+                    
                     self.watched[index].0 = i;
+                    found_replacement = true;
 
                     // keep it and break
                     break;
                 }
             }
+            
+            if found_replacement {
+                return UnitOrNot::Undecided;
+            }
         }
 
         if self.is_false(self.clauses[index][self.watched[index].1]) {
+            let old_lit = self.clauses[index][self.watched[index].1];
+            let mut found_replacement = false;
+            
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
                 }
 
                 if !self.is_false(self.clauses[index][i]) {
+                    let new_lit = self.clauses[index][i];
+                    
+                    // Update watchers HashMap
+                    if let Some(list) = self.watchers.get_mut(&old_lit) {
+                        list.retain(|&ci| ci != index);
+                        if list.is_empty() {
+                            self.watchers.remove(&old_lit);
+                        }
+                    }
+                    self.watchers.entry(new_lit).or_default().push(index);
+                    
                     self.watched[index].1 = i;
+                    found_replacement = true;
 
                     // keep it and break
                     break;
                 }
+            }
+            
+            if found_replacement {
+                return UnitOrNot::Undecided;
             }
         }
 
@@ -234,13 +286,23 @@ impl Cnf {
                 let (learned_clause, dl) = self.analyse_conflict(ci);
 
                 self.backjump(dl);
-                // add watch variables for the learned clause
+                
+                // Add the learned clause
+                let new_ci = self.clauses.len();
+                self.clauses.push(learned_clause.clone());
+                
+                // Add watch variables for the learned clause
                 if learned_clause.len() == 1 {
                     self.watched.push((0, 0));
+                    let lit = learned_clause[0];
+                    self.watchers.entry(lit).or_default().push(new_ci);
                 } else {
-                    self.watched.push((0, 1))
+                    self.watched.push((0, 1));
+                    let lit1 = learned_clause[0];
+                    let lit2 = learned_clause[1];
+                    self.watchers.entry(lit1).or_default().push(new_ci);
+                    self.watchers.entry(lit2).or_default().push(new_ci);
                 }
-                self.clauses.push(learned_clause);
 
                 self.unit_prop_watched();
             }

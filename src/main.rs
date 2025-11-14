@@ -45,13 +45,17 @@ fn main() {
 
     let mut cnf = Cnf::new(clauses);
 
-    // println!("{:?}", cnf);
-    // To solve after loading:
+    // Verify watchers are initialized correctly
+    cnf.verify_watchers();
 
     if cnf.solve_cdcl() {
         println!("SATISFIABLE");
+        // Verify watchers after solving
+        cnf.verify_watchers();
     } else {
         println!("UNSATISFIABLE");
+        // Verify watchers after solving
+        cnf.verify_watchers();
     }
 
     // let duration = start.elapsed();
