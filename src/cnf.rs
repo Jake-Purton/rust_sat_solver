@@ -23,7 +23,7 @@ pub struct Cnf {
     pub watchers: HashMap<i32, Vec<usize>>,
     // HashMap to track unit clauses: maps unit literal to clause indices
     // that are unit with that literal as the only unassigned/true literal
-    pub unit_clauses: HashMap<i32, Vec<usize>>,
+    unit_clauses: HashMap<i32, Vec<usize>>,
 }
 
 enum UnitOrNot {
@@ -246,32 +246,29 @@ impl Cnf {
         }
 
         // Process all units from the unit_clauses HashMap
-        // We need to clone the keys to avoid borrow checker issues
-        let unit_lits: Vec<i32> = self.unit_clauses.keys().copied().collect();
-        for unit_lit in unit_lits {
-            if let Some(clause_indices) = self.unit_clauses.get(&unit_lit).cloned() {
-                // Pick the first clause for this unit (arbitrary but valid)
-                if let Some(&clause_idx) = clause_indices.first() {
-                    if !self.contains(unit_lit) {
-                        self.insert(unit_lit);
-                        self.decision_stack.push((unit_lit, Some(clause_idx)));
-                        propagation_queue.push(unit_lit);
-                    }
+        // Take ownership using std::mem::take to avoid the clone
+        let unit_map = std::mem::take(&mut self.unit_clauses);
+        for (unit_lit, clause_indices) in unit_map {
+            // Pick the first clause for this unit (arbitrary but valid)
+            if let Some(&clause_idx) = clause_indices.first() {
+                if !self.contains(unit_lit) {
+                    self.insert(unit_lit);
+                    self.decision_stack.push((unit_lit, Some(clause_idx)));
+                    propagation_queue.push(unit_lit);
                 }
             }
         }
-        // Clear after processing initial units
-        self.unit_clauses.clear();
 
         // Propagate assignments using the watchers HashMap
         while let Some(assigned_lit) = propagation_queue.pop() {
             let neg_lit = -assigned_lit;
 
             // Get clauses watching the negation of the assigned literal
-            let watching_clauses: Vec<usize> = self
-                .watchers
-                .get(&neg_lit).cloned()
-                .unwrap_or_default();
+            // We need to clone to avoid holding a reference during eval_watched
+            let watching_clauses: Vec<usize> = match self.watchers.get(&neg_lit) {
+                Some(clauses) => clauses.clone(),
+                None => continue, // No clauses watching this literal
+            };
 
             for &clause_idx in &watching_clauses {
                 match self.eval_watched(clause_idx) {
