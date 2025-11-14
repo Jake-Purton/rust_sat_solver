@@ -44,9 +44,9 @@ impl Cnf {
                 watched[i].1 = 0;
             }
 
-            for l in 0..clauses[i].len() {
-                if largest < clauses[i][l].abs() {
-                    largest = clauses[i][l].abs();
+            for &lit in &clauses[i] {
+                if largest < lit.abs() {
+                    largest = lit.abs();
                 }
             }
         }
@@ -84,7 +84,7 @@ impl Cnf {
 
     #[inline]
     fn insert(&mut self, lit: i32) {
-        let var = lit.abs() as usize;
+        let var = lit.unsigned_abs() as usize;
 
         if lit > 0 {
             self.model[var - 1] = Some(true);
@@ -102,7 +102,7 @@ impl Cnf {
 
     #[inline]
     fn is_true(&self, lit: i32) -> bool {
-        let var = lit.abs() as usize;
+        let var = lit.unsigned_abs() as usize;
         match self.model[var - 1] {
             Some(val) => (lit > 0 && val) || (lit < 0 && !val),
             None => false,
@@ -111,7 +111,7 @@ impl Cnf {
 
     #[inline]
     fn is_false(&self, lit: i32) -> bool {
-        let var = lit.abs() as usize;
+        let var = lit.unsigned_abs() as usize;
         match self.model[var - 1] {
             Some(val) => (lit > 0 && !val) || (lit < 0 && val),
             None => false,
@@ -120,8 +120,8 @@ impl Cnf {
 
     #[inline]
     fn contains(&self, lit: i32) -> bool {
-        let var = lit.abs() as usize;
-        return !self.model[var - 1].is_none();
+        let var = lit.unsigned_abs() as usize;
+        self.model[var - 1].is_some()
     }
 
     fn eval_watched(&mut self, index: usize) -> UnitOrNot {
@@ -141,7 +141,7 @@ impl Cnf {
         if self.is_false(self.clauses[index][self.watched[index].0]) {
             let old_lit = self.clauses[index][self.watched[index].0];
             let mut found_replacement = false;
-            
+
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
@@ -149,7 +149,7 @@ impl Cnf {
 
                 if !self.is_false(self.clauses[index][i]) {
                     let new_lit = self.clauses[index][i];
-                    
+
                     // Update watchers HashMap
                     if let Some(list) = self.watchers.get_mut(&old_lit) {
                         list.retain(|&ci| ci != index);
@@ -158,7 +158,7 @@ impl Cnf {
                         }
                     }
                     self.watchers.entry(new_lit).or_default().push(index);
-                    
+
                     self.watched[index].0 = i;
                     found_replacement = true;
 
@@ -166,7 +166,7 @@ impl Cnf {
                     break;
                 }
             }
-            
+
             if found_replacement {
                 return UnitOrNot::Undecided;
             }
@@ -175,7 +175,7 @@ impl Cnf {
         if self.is_false(self.clauses[index][self.watched[index].1]) {
             let old_lit = self.clauses[index][self.watched[index].1];
             let mut found_replacement = false;
-            
+
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
@@ -183,7 +183,7 @@ impl Cnf {
 
                 if !self.is_false(self.clauses[index][i]) {
                     let new_lit = self.clauses[index][i];
-                    
+
                     // Update watchers HashMap
                     if let Some(list) = self.watchers.get_mut(&old_lit) {
                         list.retain(|&ci| ci != index);
@@ -192,7 +192,7 @@ impl Cnf {
                         }
                     }
                     self.watchers.entry(new_lit).or_default().push(index);
-                    
+
                     self.watched[index].1 = i;
                     found_replacement = true;
 
@@ -200,7 +200,7 @@ impl Cnf {
                     break;
                 }
             }
-            
+
             if found_replacement {
                 return UnitOrNot::Undecided;
             }
@@ -229,10 +229,10 @@ impl Cnf {
     fn unit_prop_watched(&mut self) -> Option<usize> {
         // Use a work queue to track literals that have been assigned and need propagation
         let mut propagation_queue: Vec<i32> = Vec::new();
-        
+
         // Use unit_clauses HashMap to track current unit clauses in this propagation
         self.unit_clauses.clear();
-        
+
         // Initial scan: find all current unit clauses
         for index in 0..self.clauses.len() {
             match self.eval_watched(index) {
@@ -244,7 +244,7 @@ impl Cnf {
                 }
             }
         }
-        
+
         // Process all units from the unit_clauses HashMap
         // We need to clone the keys to avoid borrow checker issues
         let unit_lits: Vec<i32> = self.unit_clauses.keys().copied().collect();
@@ -262,16 +262,17 @@ impl Cnf {
         }
         // Clear after processing initial units
         self.unit_clauses.clear();
-        
+
         // Propagate assignments using the watchers HashMap
         while let Some(assigned_lit) = propagation_queue.pop() {
             let neg_lit = -assigned_lit;
-            
+
             // Get clauses watching the negation of the assigned literal
-            let watching_clauses: Vec<usize> = self.watchers.get(&neg_lit)
-                .map(|v| v.clone())
+            let watching_clauses: Vec<usize> = self
+                .watchers
+                .get(&neg_lit).cloned()
                 .unwrap_or_default();
-            
+
             for &clause_idx in &watching_clauses {
                 match self.eval_watched(clause_idx) {
                     UnitOrNot::True => continue,
@@ -306,7 +307,7 @@ impl Cnf {
     fn backjump(&mut self, dl: u32) {
         while dl < self.dl {
             if let Some((lit, reason)) = self.decision_stack.pop() {
-                self.model[lit.abs() as usize - 1] = None;
+                self.model[lit.unsigned_abs() as usize - 1] = None;
                 if reason.is_none() {
                     self.dl -= 1;
                 }
@@ -316,7 +317,7 @@ impl Cnf {
 
     pub fn solve_cdcl(&mut self) -> bool {
         // self.clean();
-        if let Some(_) = self.unit_prop_watched() {
+        if self.unit_prop_watched().is_some() {
             return false;
         }
 
@@ -331,11 +332,11 @@ impl Cnf {
                 let (learned_clause, dl) = self.analyse_conflict(ci);
 
                 self.backjump(dl);
-                
+
                 // Add the learned clause
                 let new_ci = self.clauses.len();
                 self.clauses.push(learned_clause.clone());
-                
+
                 // Add watch variables for the learned clause
                 if learned_clause.len() == 1 {
                     self.watched.push((0, 0));
@@ -437,20 +438,18 @@ impl Cnf {
 
                     // keep conflict literals except those with var v
                     for &lit in &conflict {
-                        if lit.abs() != v {
-                            if inserted.insert(lit) {
+                        if lit.abs() != v
+                            && inserted.insert(lit) {
                                 new_conflict.push(lit);
                             }
-                        }
                     }
 
                     // add reason literals (except var v), avoid duplicates
                     for &lit in reason_clause {
-                        if lit.abs() != v {
-                            if inserted.insert(lit) {
+                        if lit.abs() != v
+                            && inserted.insert(lit) {
                                 new_conflict.push(lit);
                             }
-                        }
                     }
 
                     conflict = new_conflict;
@@ -514,11 +513,7 @@ mod tests {
     #[test]
     fn test_simple_sat() {
         // (1 OR 2) AND (-1 OR 3) AND (-2 OR -3)
-        let clauses = vec![
-            vec![1, 2],
-            vec![-1, 3],
-            vec![-2, -3],
-        ];
+        let clauses = vec![vec![1, 2], vec![-1, 3], vec![-2, -3]];
         let mut cnf = Cnf::new(clauses);
         assert!(cnf.solve_cdcl());
     }
@@ -526,10 +521,7 @@ mod tests {
     #[test]
     fn test_simple_unsat() {
         // (1) AND (-1)
-        let clauses = vec![
-            vec![1],
-            vec![-1],
-        ];
+        let clauses = vec![vec![1], vec![-1]];
         let mut cnf = Cnf::new(clauses);
         assert!(!cnf.solve_cdcl());
     }
@@ -537,10 +529,7 @@ mod tests {
     #[test]
     fn test_unit_propagation() {
         // (1) AND (-1 OR 2) should propagate to satisfy 2
-        let clauses = vec![
-            vec![1],
-            vec![-1, 2],
-        ];
+        let clauses = vec![vec![1], vec![-1, 2]];
         let mut cnf = Cnf::new(clauses);
         assert!(cnf.solve_cdcl());
         assert!(cnf.is_true(1));
@@ -550,11 +539,7 @@ mod tests {
     #[test]
     fn test_three_sat_satisfiable() {
         // Classic 3-SAT: (1 OR 2 OR 3) AND (-1 OR -2 OR 3) AND (1 OR -2 OR -3)
-        let clauses = vec![
-            vec![1, 2, 3],
-            vec![-1, -2, 3],
-            vec![1, -2, -3],
-        ];
+        let clauses = vec![vec![1, 2, 3], vec![-1, -2, 3], vec![1, -2, -3]];
         let mut cnf = Cnf::new(clauses);
         assert!(cnf.solve_cdcl());
     }
@@ -562,12 +547,7 @@ mod tests {
     #[test]
     fn test_three_sat_unsatisfiable() {
         // (1 OR 2) AND (-1 OR 2) AND (1 OR -2) AND (-1 OR -2)
-        let clauses = vec![
-            vec![1, 2],
-            vec![-1, 2],
-            vec![1, -2],
-            vec![-1, -2],
-        ];
+        let clauses = vec![vec![1, 2], vec![-1, 2], vec![1, -2], vec![-1, -2]];
         let mut cnf = Cnf::new(clauses);
         assert!(!cnf.solve_cdcl());
     }
@@ -575,10 +555,7 @@ mod tests {
     #[test]
     fn test_watchers_hashmap_usage() {
         // Test that watchers HashMap is properly used
-        let clauses = vec![
-            vec![1, 2],
-            vec![-1, 3],
-        ];
+        let clauses = vec![vec![1, 2], vec![-1, 3]];
         let cnf = Cnf::new(clauses);
         // Check that watchers are initialized
         assert!(cnf.watchers.contains_key(&1));
@@ -590,10 +567,7 @@ mod tests {
     #[test]
     fn test_unit_clauses_cleared() {
         // Test that unit_clauses is properly managed
-        let clauses = vec![
-            vec![1],
-            vec![-1, 2],
-        ];
+        let clauses = vec![vec![1], vec![-1, 2]];
         let mut cnf = Cnf::new(clauses);
         cnf.solve_cdcl();
         // unit_clauses should be cleared after propagation
