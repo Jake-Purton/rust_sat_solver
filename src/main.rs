@@ -2,10 +2,10 @@ mod cnf;
 
 use cnf::Cnf;
 use std::io::Read;
-use std::time::Instant;
+// use std::time::Instant;
 
 fn main() {
-    let start = Instant::now();
+    // let start = Instant::now();
 
     let mut buf = String::new();
     std::io::stdin()
@@ -45,15 +45,12 @@ fn main() {
 
     let mut cnf = Cnf::new(clauses);
 
-    // println!("{:?}", cnf);
-    // To solve after loading:
-
     if cnf.solve_cdcl() {
         println!("SATISFIABLE");
     } else {
         println!("UNSATISFIABLE");
     }
 
-    let duration = start.elapsed();
-    println!("Elapsed: {:.3} s", duration.as_secs_f64());
+    // let duration = start.elapsed();
+    // println!("Elapsed: {:.3} s", duration.as_secs_f64());
 }
