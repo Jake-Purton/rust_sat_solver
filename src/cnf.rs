@@ -24,6 +24,12 @@ pub struct Cnf {
     // HashMap to track unit clauses: maps unit literal to clause indices
     // that are unit with that literal as the only unassigned/true literal
     unit_clauses: HashMap<i32, Vec<usize>>,
+    
+    // VSIDS heuristic
+    vsids_scores: Vec<f64>,
+    vsids_increment: f64,
+    vsids_decay: f64,
+    phase_saving: Vec<bool>,
 }
 
 enum UnitOrNot {
@@ -65,10 +71,12 @@ impl Cnf {
             }
         }
 
+        let num_vars = largest as usize;
+
         Self {
             clauses,
 
-            model: vec![None; largest as usize],
+            model: vec![None; num_vars],
 
             decision_stack: Vec::new(),
 
@@ -79,6 +87,12 @@ impl Cnf {
             watchers,
 
             unit_clauses: HashMap::new(),
+            
+            // Initialize VSIDS
+            vsids_scores: vec![0.0; num_vars],
+            vsids_increment: 1.0,
+            vsids_decay: 0.95,
+            phase_saving: vec![true; num_vars],
         }
     }
 
@@ -88,8 +102,10 @@ impl Cnf {
 
         if lit > 0 {
             self.model[var - 1] = Some(true);
+            self.phase_saving[var - 1] = true;
         } else {
-            self.model[var - 1] = Some(false)
+            self.model[var - 1] = Some(false);
+            self.phase_saving[var - 1] = false;
         }
     }
 
@@ -290,15 +306,53 @@ impl Cnf {
     }
 
     pub fn choose_unassigned_literal(&self) -> Option<i32> {
-        for i in &self.clauses {
-            for l in i {
-                if !self.contains(*l) {
-                    return Some(*l);
+        // Use VSIDS heuristic to choose the variable with highest activity
+        let mut best_var = None;
+        let mut best_score = -1.0;
+        
+        for var in 1..=self.vsids_scores.len() {
+            let var_i32 = var as i32;
+            if !self.contains(var_i32) {
+                let idx = var - 1;
+                if self.vsids_scores[idx] > best_score {
+                    best_score = self.vsids_scores[idx];
+                    best_var = Some(var_i32);
                 }
             }
         }
-
+        
+        if let Some(var) = best_var {
+            // Use phase saving for polarity
+            let idx = (var - 1) as usize;
+            let polarity = self.phase_saving[idx];
+            return Some(if polarity { var } else { -var });
+        }
+        
         None
+    }
+
+    // VSIDS helper functions
+    fn bump_vsids(&mut self, var: i32) {
+        let idx = (var.abs() - 1) as usize;
+        if idx < self.vsids_scores.len() {
+            self.vsids_scores[idx] += self.vsids_increment;
+            
+            // Rescale if scores get too large
+            if self.vsids_scores[idx] > 1e100 {
+                self.rescale_vsids();
+            }
+        }
+    }
+
+    fn decay_vsids(&mut self) {
+        self.vsids_increment /= self.vsids_decay;
+    }
+
+    fn rescale_vsids(&mut self) {
+        for score in &mut self.vsids_scores {
+            *score *= 1e-100;
+        }
+        self.vsids_increment *= 1e-100;
     }
 
     fn backjump(&mut self, dl: u32) {
@@ -327,6 +381,9 @@ impl Cnf {
                 }
 
                 let (learned_clause, dl) = self.analyse_conflict(ci);
+                
+                // Bump VSIDS scores for variables in learned clause
+                self.bump_learned_clause(&learned_clause);
 
                 self.backjump(dl);
 
@@ -479,6 +536,16 @@ impl Cnf {
         // println!("[analyse_conflict] learned={:?} backtrack={}", learnt, backtrack_level);
 
         (learnt, backtrack_level)
+    }
+    
+    fn bump_learned_clause(&mut self, clause: &[i32]) {
+        // Bump activity for all variables in the learned clause
+        for &lit in clause {
+            self.bump_vsids(lit.abs());
+        }
+        
+        // Decay all activities
+        self.decay_vsids();
     }
 
     fn decision_level(&self, lit: i32) -> Option<(u32, Option<usize>)> {
