@@ -1,9 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct Cnf {
     pub clauses: Vec<Vec<i32>>,
-    
+
     pub model: Vec<Option<bool>>,
 
     // have the decisio  stack and push stuff onto it
@@ -16,52 +16,39 @@ pub struct Cnf {
     // boolean flag is the decision flag
 
     // watched literals for clauses
+    // watched[index of clause] = (lit1 lit2)
     pub watched: Vec<(usize, usize)>,
+    // map the variable to the
+    // clauses watching it
+    pub watchers: HashMap<i32, Vec<usize>>,
 }
 
 enum UnitOrNot {
     Undecided,
     False,
     Unit(i32),
-    True
+    True,
 }
 
 impl Cnf {
-
     pub fn new(clauses: Vec<Vec<i32>>) -> Self {
-
         let mut watched: Vec<(usize, usize)> = vec![(0, 1); clauses.len()];
 
         let mut largest = 0;
 
-
-
         for i in 0..clauses.len() {
-
             if clauses[i].len() == 1 {
-
                 watched[i].1 = 0;
-
             }
-
-
 
             for l in 0..clauses[i].len() {
-
                 if largest < clauses[i][l].abs() {
-
                     largest = clauses[i][l].abs();
-
                 }
-
             }
-
         }
 
-
-
         Self {
-
             clauses,
 
             model: vec![None; largest as usize],
@@ -72,14 +59,14 @@ impl Cnf {
 
             watched,
 
+            watchers: HashMap::new(),
         }
-
     }
 
     #[inline]
     fn insert(&mut self, lit: i32) {
         let var = lit.abs() as usize;
-        
+
         if lit > 0 {
             self.model[var - 1] = Some(true);
         } else {
@@ -115,11 +102,10 @@ impl Cnf {
     #[inline]
     fn contains(&self, lit: i32) -> bool {
         let var = lit.abs() as usize;
-        return !self.model[var-1].is_none();
+        return !self.model[var - 1].is_none();
     }
 
     fn eval_watched(&mut self, index: usize) -> UnitOrNot {
-
         // optimise later
 
         if self.watched[index].0 == self.watched[index].1 {
@@ -134,47 +120,43 @@ impl Cnf {
 
         // if a variable is false, you must find another
         if self.is_false(self.clauses[index][self.watched[index].0]) {
-
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
                 }
 
                 if !self.is_false(self.clauses[index][i]) {
-                    
                     self.watched[index].0 = i;
 
                     // keep it and break
                     break;
-
                 }
             }
-
         }
 
         if self.is_false(self.clauses[index][self.watched[index].1]) {
-
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
                 }
 
                 if !self.is_false(self.clauses[index][i]) {
-                    
                     self.watched[index].1 = i;
 
                     // keep it and break
                     break;
-
                 }
             }
-
         }
 
         // if both are still false then unsat
-        if self.is_false(self.clauses[index][self.watched[index].0]) && self.is_false(self.clauses[index][self.watched[index].1]) {
+        if self.is_false(self.clauses[index][self.watched[index].0])
+            && self.is_false(self.clauses[index][self.watched[index].1])
+        {
             return UnitOrNot::False;
-        } else if self.is_true(self.clauses[index][self.watched[index].0]) || self.is_true(self.clauses[index][self.watched[index].1]) {
+        } else if self.is_true(self.clauses[index][self.watched[index].0])
+            || self.is_true(self.clauses[index][self.watched[index].1])
+        {
             return UnitOrNot::True;
         } else if self.is_false(self.clauses[index][self.watched[index].0]) {
             return UnitOrNot::Unit(self.clauses[index][self.watched[index].1]);
@@ -187,12 +169,11 @@ impl Cnf {
     }
 
     // return none if no conflict else the conflicting clause
-    fn unit_prop_watched (&mut self) -> Option<usize> {
+    fn unit_prop_watched(&mut self) -> Option<usize> {
         loop {
             let mut found_unit = false;
 
             for index in 0..self.clauses.len() {
-
                 match self.eval_watched(index) {
                     UnitOrNot::True => continue,
                     UnitOrNot::False => return Some(index),
@@ -201,9 +182,8 @@ impl Cnf {
                         self.insert(unit);
                         self.decision_stack.push((unit, Some(index)));
                         found_unit = true;
-                    },
+                    }
                 }
-
             }
 
             if !found_unit {
@@ -214,11 +194,11 @@ impl Cnf {
         None
     }
 
-    pub fn choose_unassigned_literal (&self) -> Option<i32> {
+    pub fn choose_unassigned_literal(&self) -> Option<i32> {
         for i in &self.clauses {
             for l in i {
                 if !self.contains(*l) {
-                    return Some(*l); 
+                    return Some(*l);
                 }
             }
         }
@@ -237,10 +217,9 @@ impl Cnf {
         }
     }
 
-    pub fn solve_cdcl (&mut self) -> bool {
-
+    pub fn solve_cdcl(&mut self) -> bool {
         // self.clean();
-        if let Some (_) = self.unit_prop_watched() {
+        if let Some(_) = self.unit_prop_watched() {
             return false;
         }
 
@@ -248,25 +227,22 @@ impl Cnf {
             // backtracking
 
             while let Some(ci) = self.unit_prop_watched() {
-
                 if self.dl == 0 {
                     return false;
                 }
 
                 let (learned_clause, dl) = self.analyse_conflict(ci);
-                
+
                 self.backjump(dl);
                 // add watch variables for the learned clause
                 if learned_clause.len() == 1 {
-                    
-                    self.watched.push((0,0));
+                    self.watched.push((0, 0));
                 } else {
-                    self.watched.push((0,1))
+                    self.watched.push((0, 1))
                 }
                 self.clauses.push(learned_clause);
 
                 self.unit_prop_watched();
-
             }
 
             // choose that variable
@@ -277,17 +253,14 @@ impl Cnf {
                 self.unit_prop_watched();
             }
 
-
             // end
 
             if self.all_clauses_solved() {
                 break;
             }
-
         }
 
         true
-
     }
 
     fn analyse_conflict(&self, conflict_index: usize) -> (Vec<i32>, u32) {
@@ -408,11 +381,14 @@ impl Cnf {
     fn decision_level(&self, lit: i32) -> Option<(u32, Option<usize>)> {
         for (i, &(v, reason)) in self.decision_stack.iter().enumerate() {
             if v.abs() == lit.abs() {
-                let dl = self.decision_stack[..=i].iter().filter(|&&(_, r)| r.is_none()).count() as u32;
+                let dl = self.decision_stack[..=i]
+                    .iter()
+                    .filter(|&&(_, r)| r.is_none())
+                    .count() as u32;
                 return Some((dl, reason));
             }
         }
-        None  // literal not in decision stack
+        None // literal not in decision stack
     }
 
     fn all_clauses_solved(&self) -> bool {
