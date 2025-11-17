@@ -135,6 +135,7 @@ impl Cnf {
     fn eval_watched(&mut self, index: usize) -> UnitOrNot {
         // optimise later
 
+        // if it is a 1 variable clause
         if self.watched[index].0 == self.watched[index].1 {
             if self.is_false(self.clauses[index][self.watched[index].0]) {
                 return UnitOrNot::False;
@@ -146,10 +147,11 @@ impl Cnf {
         }
 
         let mut ended_at = 0;
-        
+        let mut found_replacement = true;
+
         // if a variable is false, you must find another
         if self.is_false(self.clauses[index][self.watched[index].0]) {
-            let mut found_replacement = false;
+            found_replacement = false;
             let old_lit = self.clauses[index][self.watched[index].0];
 
             for i in 0..self.clauses[index].len() {
@@ -184,8 +186,10 @@ impl Cnf {
             }
         }
 
+        // if there were no spare literals in the last one then there wont be for this one
+
         // and again for the second literal
-        if self.is_false(self.clauses[index][self.watched[index].1]) {
+        if self.is_false(self.clauses[index][self.watched[index].1]) && found_replacement {
             let old_lit = self.clauses[index][self.watched[index].1];
             let mut found_replacement = false;
 
