@@ -21,11 +21,11 @@ pub struct Cnf {
     // map the variable to the
     // clauses watching it
     pub watchers: HashMap<i32, Vec<usize>>,
-    // HashMap to track unit clauses: maps unit literal to clause indices
-    // that are unit with that literal as the only unassigned/true literal
+    
+    // track unit clauses with their units
     unit_clauses: HashMap<i32, Vec<usize>>,
     
-    // VSIDS heuristic
+    // VSIDS heuristic (boost variables that appear often in conflicts)
     vsids_scores: Vec<f64>,
     vsids_increment: f64,
     vsids_decay: f64,
@@ -57,7 +57,7 @@ impl Cnf {
             }
         }
 
-        // Initialize watchers HashMap
+        // initialise watchers
         let mut watchers: HashMap<i32, Vec<usize>> = HashMap::new();
         for (ci, clause) in clauses.iter().enumerate() {
             if clause.len() == 1 {
@@ -88,7 +88,6 @@ impl Cnf {
 
             unit_clauses: HashMap::new(),
             
-            // Initialize VSIDS
             vsids_scores: vec![0.0; num_vars],
             vsids_increment: 1.0,
             vsids_decay: 0.95,
@@ -108,13 +107,6 @@ impl Cnf {
             self.phase_saving[var - 1] = false;
         }
     }
-
-    // #[inline]
-    // fn remove(&mut self, lit: i32) {
-    //     let var = lit.abs() as usize;
-
-    //     self.model[var-1] = None;
-    // }
 
     #[inline]
     fn is_true(&self, lit: i32) -> bool {
@@ -153,10 +145,12 @@ impl Cnf {
             }
         }
 
+        let mut ended_at = 0;
+        
         // if a variable is false, you must find another
         if self.is_false(self.clauses[index][self.watched[index].0]) {
-            let old_lit = self.clauses[index][self.watched[index].0];
             let mut found_replacement = false;
+            let old_lit = self.clauses[index][self.watched[index].0];
 
             for i in 0..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
@@ -166,7 +160,7 @@ impl Cnf {
                 if !self.is_false(self.clauses[index][i]) {
                     let new_lit = self.clauses[index][i];
 
-                    // Update watchers HashMap
+                    // update watchers
                     if let Some(list) = self.watchers.get_mut(&old_lit) {
                         list.retain(|&ci| ci != index);
                         if list.is_empty() {
@@ -178,6 +172,8 @@ impl Cnf {
                     self.watched[index].0 = i;
                     found_replacement = true;
 
+                    ended_at = i;
+
                     // keep it and break
                     break;
                 }
@@ -188,11 +184,12 @@ impl Cnf {
             }
         }
 
+        // and again for the second literal
         if self.is_false(self.clauses[index][self.watched[index].1]) {
             let old_lit = self.clauses[index][self.watched[index].1];
             let mut found_replacement = false;
 
-            for i in 0..self.clauses[index].len() {
+            for i in ended_at..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
                     continue;
                 }
@@ -200,7 +197,7 @@ impl Cnf {
                 if !self.is_false(self.clauses[index][i]) {
                     let new_lit = self.clauses[index][i];
 
-                    // Update watchers HashMap
+                    // update watchers
                     if let Some(list) = self.watchers.get_mut(&old_lit) {
                         list.retain(|&ci| ci != index);
                         if list.is_empty() {
