@@ -34,5 +34,9 @@ input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
 "./opt7" sat: 61 avg. 0.1803 unsat: 70 avg. 0.91 unknown: 0 killed: 0
 "./opt7" better: 0 worse: 47 same: 84 inconsistencies: 0
 
+input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
+"./opt8" sat: 61 avg. 0.1508 unsat: 70 avg. 0.8814 unknown: 0 killed: 0
+"./opt8" better: 0 worse: 45 same: 86 inconsistencies: 0
+
 
 
