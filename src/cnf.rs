@@ -483,40 +483,36 @@ impl Cnf {
                 break;
             }
 
-            if let Some((_, reason_opt)) = self.decision_level(uip.abs()) {
-                if let Some(reason_idx) = reason_opt {
-                    let reason_clause = &self.clauses[reason_idx];
+            if let Some((_, Some(reason_idx))) = self.decision_level(uip.abs()) {
+                let reason_clause = &self.clauses[reason_idx];
 
-                    // Proper resolution: new_conflict = (conflict \ {v}) ∪ (reason_clause \ {v})
-                    let v = uip.abs();
-                    let mut new_conflict: Vec<i32> = Vec::new();
-                    let mut inserted: HashSet<i32> = HashSet::new();
+                // Proper resolution: new_conflict = (conflict \ {v}) ∪ (reason_clause \ {v})
+                let v = uip.abs();
+                let mut new_conflict: Vec<i32> = Vec::new();
+                let mut inserted: HashSet<i32> = HashSet::new();
 
-                    // keep conflict literals except those with var v
-                    for &lit in &conflict {
-                        if lit.abs() != v
-                            && inserted.insert(lit) {
-                                new_conflict.push(lit);
-                            }
-                    }
-
-                    // add reason literals (except var v), avoid duplicates
-                    for &lit in reason_clause {
-                        if lit.abs() != v
-                            && inserted.insert(lit) {
-                                new_conflict.push(lit);
-                            }
-                    }
-
-                    conflict = new_conflict;
-                } else {
-                    // if no reason (decision variable), we can't resolve further
-                    break;
+                // keep conflict literals except those with var v
+                for &lit in &conflict {
+                    if lit.abs() != v
+                        && inserted.insert(lit) {
+                            new_conflict.push(lit);
+                        }
                 }
+
+                // add reason literals (except var v), avoid duplicates
+                for &lit in reason_clause {
+                    if lit.abs() != v
+                        && inserted.insert(lit) {
+                            new_conflict.push(lit);
+                        }
+                }
+
+                conflict = new_conflict;
             } else {
-                // UIP not found in decision stack (shouldn't happen)
+                // if no reason (decision variable), we can't resolve further
                 break;
             }
+
         }
 
         // negate UIP literal:
