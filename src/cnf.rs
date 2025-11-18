@@ -187,11 +187,13 @@ impl Cnf {
         }
 
         // if there were no spare literals in the last one then there wont be for this one
+        let mut second_is_not_false = true;
 
         // and again for the second literal
         if found_replacement && self.is_false(self.clauses[index][self.watched[index].1]) {
             let old_lit = self.clauses[index][self.watched[index].1];
             let mut found_replacement = false;
+            second_is_not_false = false;
 
             for i in ended_at..self.clauses[index].len() {
                 if i == self.watched[index].0 || i == self.watched[index].1 {
@@ -212,6 +214,7 @@ impl Cnf {
 
                     self.watched[index].1 = i;
                     found_replacement = true;
+                    second_is_not_false = true;
 
                     // keep it and break
                     break;
@@ -234,7 +237,7 @@ impl Cnf {
             return UnitOrNot::True;
         } else if !found_replacement {
             return UnitOrNot::Unit(self.clauses[index][self.watched[index].1]);
-        } else if self.is_false(self.clauses[index][self.watched[index].1]) {
+        } else if !second_is_not_false {
             return UnitOrNot::Unit(self.clauses[index][self.watched[index].0]);
         }
 
