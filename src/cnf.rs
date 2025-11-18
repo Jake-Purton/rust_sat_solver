@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 #[derive(Debug, Clone)]
 pub struct Cnf {
@@ -248,12 +248,11 @@ impl Cnf {
     // return none if no conflict else the conflicting clause
     fn unit_prop_watched(&mut self) -> Option<usize> {
         // use a queue to check literals that have been updated
-        let mut propagation_queue: Vec<i32> = Vec::new();
+        let mut propagation_queue: VecDeque<i32> = VecDeque::new();
 
         self.unit_clauses.clear();
 
         // scan for unit clauses at the start
-        // to do make this use a different watched eval function that only cares if false or unit
         for index in 0..self.clauses.len() {
             match self.eval_watched(index) {
                 UnitOrNot::True => continue,
@@ -272,13 +271,13 @@ impl Cnf {
                 if !self.contains(unit_lit) {
                     self.insert(unit_lit);
                     self.decision_stack.push((unit_lit, Some(clause_idx)));
-                    propagation_queue.push(unit_lit);
+                    propagation_queue.push_back(unit_lit);
                 }
             }
         }
 
         // propogate
-        while let Some(assigned_lit) = propagation_queue.pop() {
+        while let Some(assigned_lit) = propagation_queue.pop_front() {
             let neg_lit = -assigned_lit;
 
             // get clauses with the negation of that literal
@@ -287,7 +286,6 @@ impl Cnf {
                 None => continue,
             };
 
-            // update this to use optimised eval watched
             for &clause_idx in &watching_clauses {
                 match self.eval_watched(clause_idx) {
                     UnitOrNot::True => continue,
@@ -297,7 +295,7 @@ impl Cnf {
                         if !self.contains(unit) {
                             self.insert(unit);
                             self.decision_stack.push((unit, Some(clause_idx)));
-                            propagation_queue.push(unit);
+                            propagation_queue.push_back(unit);
                         }
                     }
                 }

@@ -26,5 +26,13 @@ input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
 "./opt6" sat: 61 avg. 0.2672 unsat: 68 avg. 1.197 unknown: 2 killed: 0
 "./opt6" better: 0 worse: 53 same: 78 inconsistencies: 0
 
+input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
+"./opt6clippy" sat: 61 avg. 0.3639 unsat: 68 avg. 1.2338 unknown: 2 killed: 0
+"./opt6clippy" better: 0 worse: 55 same: 76 inconsistencies: 0
+
+input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
+"./opt7" sat: 61 avg. 0.1803 unsat: 70 avg. 0.91 unknown: 0 killed: 0
+"./opt7" better: 0 worse: 47 same: 84 inconsistencies: 0
+
 
 
