@@ -17,3 +17,12 @@ input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
 input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
 "./opt4" sat: 61 avg. 0.4622 unsat: 69 avg. 1.4898 unknown: 1 killed: 0
 "./opt4" better: 0 worse: 53 same: 78 inconsistencies: 0
+
+input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
+"./opt5" sat: 61 avg. 0.3754 unsat: 70 avg. 1.5728 unknown: 0 killed: 0
+"./opt5" better: 0 worse: 53 same: 78 inconsistencies: 0
+
+input solver(s) sat: 61 avg. 0. unsat: 70 avg. 0. unknown: 0 killed: 0
+"./opt5" sat: 61 avg. 0.3098 unsat: 70 avg. 1.6285 unknown: 0 killed: 0
+"./opt5" better: 0 worse: 56 same: 75 inconsistencies: 0
+

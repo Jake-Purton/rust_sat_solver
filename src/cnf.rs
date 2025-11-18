@@ -189,7 +189,7 @@ impl Cnf {
         // if there were no spare literals in the last one then there wont be for this one
 
         // and again for the second literal
-        if self.is_false(self.clauses[index][self.watched[index].1]) && found_replacement {
+        if found_replacement && self.is_false(self.clauses[index][self.watched[index].1]) {
             let old_lit = self.clauses[index][self.watched[index].1];
             let mut found_replacement = false;
 
@@ -224,7 +224,7 @@ impl Cnf {
         }
 
         // if both are still false then unsat
-        if self.is_false(self.clauses[index][self.watched[index].0])
+        if !found_replacement
             && self.is_false(self.clauses[index][self.watched[index].1])
         {
             return UnitOrNot::False;
@@ -232,7 +232,7 @@ impl Cnf {
             || self.is_true(self.clauses[index][self.watched[index].1])
         {
             return UnitOrNot::True;
-        } else if self.is_false(self.clauses[index][self.watched[index].0]) {
+        } else if !found_replacement {
             return UnitOrNot::Unit(self.clauses[index][self.watched[index].1]);
         } else if self.is_false(self.clauses[index][self.watched[index].1]) {
             return UnitOrNot::Unit(self.clauses[index][self.watched[index].0]);
@@ -244,13 +244,13 @@ impl Cnf {
 
     // return none if no conflict else the conflicting clause
     fn unit_prop_watched(&mut self) -> Option<usize> {
-        // Use a work queue to track literals that have been assigned and need propagation
+        // use a queue to check literals that have been updated
         let mut propagation_queue: Vec<i32> = Vec::new();
 
-        // Use unit_clauses HashMap to track current unit clauses in this propagation
         self.unit_clauses.clear();
 
-        // Initial scan: find all current unit clauses
+        // scan for unit clauses at the start
+        // to do make this use a different watched eval function that only cares if false or unit
         for index in 0..self.clauses.len() {
             match self.eval_watched(index) {
                 UnitOrNot::True => continue,
@@ -262,11 +262,9 @@ impl Cnf {
             }
         }
 
-        // Process all units from the unit_clauses HashMap
-        // Take ownership using std::mem::take to avoid the clone
+        // take ownership
         let unit_map = std::mem::take(&mut self.unit_clauses);
         for (unit_lit, clause_indices) in unit_map {
-            // Pick the first clause for this unit (arbitrary but valid)
             if let Some(&clause_idx) = clause_indices.first() {
                 if !self.contains(unit_lit) {
                     self.insert(unit_lit);
@@ -276,17 +274,17 @@ impl Cnf {
             }
         }
 
-        // Propagate assignments using the watchers HashMap
+        // propogate
         while let Some(assigned_lit) = propagation_queue.pop() {
             let neg_lit = -assigned_lit;
 
-            // Get clauses watching the negation of the assigned literal
-            // We need to clone to avoid holding a reference during eval_watched
+            // get clauses with the negation of that literal
             let watching_clauses: Vec<usize> = match self.watchers.get(&neg_lit) {
                 Some(clauses) => clauses.clone(),
-                None => continue, // No clauses watching this literal
+                None => continue,
             };
 
+            // update this to use optimised eval watched
             for &clause_idx in &watching_clauses {
                 match self.eval_watched(clause_idx) {
                     UnitOrNot::True => continue,
@@ -323,7 +321,7 @@ impl Cnf {
         }
         
         if let Some(var) = best_var {
-            // Use phase saving for polarity
+            // phase saving for polarity
             let idx = (var - 1) as usize;
             let polarity = self.phase_saving[idx];
             return Some(if polarity { var } else { -var });
@@ -338,7 +336,7 @@ impl Cnf {
         if idx < self.vsids_scores.len() {
             self.vsids_scores[idx] += self.vsids_increment;
             
-            // Rescale if scores get too large
+            // rescale if scores get too large
             if self.vsids_scores[idx] > 1e100 {
                 self.rescale_vsids();
             }
@@ -518,7 +516,6 @@ impl Cnf {
             }
         }
 
-        // 4️⃣ Build learned clause: literals from earlier levels + negation of UIP
         // negate UIP literal:
         learnt.push(-uip);
 
