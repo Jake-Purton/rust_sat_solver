@@ -6,7 +6,7 @@ pub struct Cnf {
 
     pub model: Vec<Option<bool>>,
 
-    // have the decisio  stack and push stuff onto it
+    // have the decision stack and push stuff onto it
     // when tou want to backtrack return the state that you want go back to / the level you wabt or size
     // of the stack
 
@@ -30,6 +30,10 @@ pub struct Cnf {
     vsids_increment: f64,
     vsids_decay: f64,
     phase_saving: Vec<bool>,
+
+
+    pub var_level: Vec<Option<u32>>,
+    pub var_reason: Vec<Option<usize>>,
 }
 
 enum UnitOrNot {
@@ -92,20 +96,28 @@ impl Cnf {
             vsids_increment: 1.0,
             vsids_decay: 0.95,
             phase_saving: vec![true; num_vars],
+
+            var_level: vec![None; num_vars],
+            var_reason: vec![None; num_vars],
         }
     }
 
     #[inline]
-    fn insert(&mut self, lit: i32) {
-        let var = lit.unsigned_abs() as usize;
+    fn insert(&mut self, lit: i32, reason: Option<usize>) {
+        let var = (lit.abs() - 1) as usize;
 
+        // Set the assignment
         if lit > 0 {
-            self.model[var - 1] = Some(true);
-            self.phase_saving[var - 1] = true;
+            self.model[var] = Some(true);
+            self.phase_saving[var] = true;
         } else {
-            self.model[var - 1] = Some(false);
-            self.phase_saving[var - 1] = false;
+            self.model[var] = Some(false);
+            self.phase_saving[var] = false;
         }
+
+        // NEW: record decision level and reason
+        self.var_level[var] = Some(self.dl);
+        self.var_reason[var] = reason;
     }
 
     #[inline]
@@ -269,7 +281,7 @@ impl Cnf {
         for (unit_lit, clause_indices) in unit_map {
             if let Some(&clause_idx) = clause_indices.first() {
                 if !self.contains(unit_lit) {
-                    self.insert(unit_lit);
+                    self.insert(unit_lit, Some(clause_idx));
                     self.decision_stack.push((unit_lit, Some(clause_idx)));
                     propagation_queue.push_back(unit_lit);
                 }
@@ -293,7 +305,7 @@ impl Cnf {
                     UnitOrNot::Undecided => continue,
                     UnitOrNot::Unit(unit) => {
                         if !self.contains(unit) {
-                            self.insert(unit);
+                            self.insert(unit, Some(clause_idx));
                             self.decision_stack.push((unit, Some(clause_idx)));
                             propagation_queue.push_back(unit);
                         }
@@ -355,10 +367,15 @@ impl Cnf {
         self.vsids_increment *= 1e-100;
     }
 
-    fn backjump(&mut self, dl: u32) {
-        while dl < self.dl {
+    fn backjump(&mut self, target_dl: u32) {
+        while self.dl > target_dl {
             if let Some((lit, reason)) = self.decision_stack.pop() {
-                self.model[lit.unsigned_abs() as usize - 1] = None;
+                let var = (lit.abs() - 1) as usize;
+
+                self.model[var] = None;
+                self.var_level[var] = None;
+                self.var_reason[var] = None;
+
                 if reason.is_none() {
                     self.dl -= 1;
                 }
@@ -411,7 +428,7 @@ impl Cnf {
             if let Some(l) = self.choose_unassigned_literal() {
                 self.dl += 1;
                 self.decision_stack.push((l, None));
-                self.insert(l);
+                self.insert(l, None);
                 self.unit_prop_watched();
             }
 
@@ -544,16 +561,12 @@ impl Cnf {
     }
 
     fn decision_level(&self, lit: i32) -> Option<(u32, Option<usize>)> {
-        for (i, &(v, reason)) in self.decision_stack.iter().enumerate() {
-            if v.abs() == lit.abs() {
-                let dl = self.decision_stack[..=i]
-                    .iter()
-                    .filter(|&&(_, r)| r.is_none())
-                    .count() as u32;
-                return Some((dl, reason));
-            }
-        }
-        None // literal not in decision stack
+        let idx = (lit.abs() - 1) as usize;
+
+        let dl = self.var_level[idx]?;
+        let reason = self.var_reason[idx];
+
+        Some((dl, reason))
     }
 
     fn all_clauses_solved(&self) -> bool {
